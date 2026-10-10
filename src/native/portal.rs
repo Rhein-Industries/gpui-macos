@@ -285,6 +285,9 @@ mod tests {
         cx: &mut TestAppContext,
     ) {
         cx.update(crate::init);
+        // Establish the transition's starting state independently of the host's
+        // accessibility preference, which can enable Reduce Transparency in CI.
+        cx.update(|cx| Theme::light().with_reduce_transparency(false).apply(cx));
         let panels = Rc::new(RefCell::new(Vec::new()));
         let observed = panels.clone();
         cx.update(move |cx| {
