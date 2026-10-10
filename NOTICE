@@ -1,0 +1,39 @@
+gpui-macos
+
+The behavioral adapters, initial component gallery, src/chart sources, and
+src/plot/tooltip.rs are derived from
+huacnlee/gpui-omarchy, revision e63ff32b73299d4f8abd8401af5d04924b2a9d18.
+Copyright (c) 2026 Jason Lee (huacnlee). Distributed under the MIT license;
+the original license is included at licenses/gpui-omarchy-MIT.txt.
+The macOS visual design, system appearance integration, and additional
+components are modifications for this library.
+
+The chart and plot copies also substantially overlap Longbridge GPUI Kit.
+Their earlier ancestry has not been established from the pinned snapshots.
+Longbridge's Apache-2.0 attribution is retained conservatively for these
+portions: Copyright 2024-2026 Longbridge. The unchanged license is included
+at licenses/gpui-kit-Apache-2.0.txt. This notice does not replace the MIT grant
+or Jason Lee attribution above.
+
+GPUI Kit 0.7.1 source is vendored at revision
+0bbd9870ce420af9feacbf948b21d3824d82dc0b. Its workspace manifests are
+normalized for portable local dependencies. GPUI Base includes configurable
+secure-mask and repeatable-popup presentation extensions; see vendor/README.md.
+GPUI Kit and GPUI are Apache-2.0 dependencies. Their licenses remain with
+their respective packages. Icons are supplied by GPUI Kit Assets (Lucide).
+docs/upstream-component-exports.rs is an unmodified Apache-2.0 source fixture
+from GPUI Kit's crates/component/src/lib.rs at the revision above; its
+Longbridge attribution and license are retained at
+licenses/gpui-kit-Apache-2.0.txt.
+The Lucide ISC and Feather MIT notices remain together in
+vendor/gpui-kit-assets/LICENSE-LUCIDE. No Apple font files, standalone SF
+Symbol assets, or wallpapers are bundled. Documentation includes application
+screenshots with system-rendered chrome and symbols. System fonts and symbols
+resolve from macOS at runtime and remain subject to Apple's applicable terms.
+
+Generated application notices contain the actual license texts and source
+links for the resolved macOS dependencies. Regenerate them with
+scripts/generate-notices.py. They distinguish runtime dependencies from
+build/proc-macro and development dependencies and cover default plus optional
+features. MPL-2.0 source availability is documented with the included source;
+option-ext is a runtime dependency and cbindgen is a build dependency.

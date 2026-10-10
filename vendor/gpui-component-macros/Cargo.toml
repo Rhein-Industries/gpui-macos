@@ -1,0 +1,61 @@
+# Pinned GPUI Kit source; workspace dependencies normalized locally.
+
+[package]
+name = "gpui-macos-component-macros"
+description = "The gpui-macos pinned fork of gpui-component-macros."
+version = "0.7.1-macos.1"
+license = "Apache-2.0"
+publish = ["crates-io"]
+edition = "2024"
+documentation = "https://docs.rs/gpui-macos-component-macros"
+repository = "https://github.com/Rhein-Industries/gpui-macos"
+homepage = "https://github.com/Rhein-Industries/gpui-macos"
+
+[package.metadata]
+
+[package.metadata.cargo-machete]
+ignored = ["proc-macro2", "core-text"]
+
+[package.metadata.gpui-macos-fork]
+upstream-package = "gpui-component-macros"
+upstream-version = "0.7.1"
+upstream-revision = "0bbd9870ce420af9feacbf948b21d3824d82dc0b"
+upstream-source = "https://github.com/longbridge/gpui-kit"
+
+[package.metadata.docs]
+
+[package.metadata.docs.rs]
+default-target = "x86_64-unknown-linux-gnu"
+targets = []
+
+[lib]
+proc-macro = true
+name = "gpui_component_macros"
+
+[lints]
+
+[lints.clippy]
+almost_complete_range = "allow"
+arc_with_non_send_sync = "allow"
+borrowed_box = "allow"
+dbg_macro = "deny"
+let_underscore_future = "allow"
+manual_is_multiple_of = "allow"
+map_entry = "allow"
+module_inception = "allow"
+non_canonical_partial_ord_impl = "allow"
+reversed_empty_ranges = "allow"
+single_range_in_vec_init = "allow"
+todo = "deny"
+type_complexity = "allow"
+useless_conversion = "allow"
+
+[lints.clippy.style]
+level = "allow"
+priority = -1
+
+[dependencies]
+proc-macro2 = "1.0"
+proc-macro-crate = "3.5"
+quote = "1.0"
+syn = "2.0"

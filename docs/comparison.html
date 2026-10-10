@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AppKit and GPUI comparison</title>
+<style>
+  :root { color-scheme: light dark; font: 13px -apple-system, BlinkMacSystemFont, sans-serif; }
+  body { margin: 0; padding: 20px; background: Canvas; color: CanvasText; }
+  header { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; }
+  h1 { font-size: 18px; margin: 0 auto 0 0; }
+  select, button { font: inherit; padding: 4px 8px; }
+  p { color: GrayText; max-width: 1000px; line-height: 1.5; }
+  .images { display: flex; gap: 16px; align-items: start; }
+  figure { flex: 1; min-width: 0; margin: 0; }
+  figcaption { font-weight: 600; margin-bottom: 8px; }
+  img { display: block; width: 100%; height: auto; }
+  .images.overlay { position: relative; display: block; max-width: 1060px; margin: auto; }
+  .overlay figure { width: 100%; }
+  .overlay figure:last-child { position: absolute; top: 0; left: 0; }
+  .overlay figcaption { visibility: hidden; }
+  #blend-control { display: none; }
+  body.blending #blend-control { display: inline-flex; align-items: center; gap: 8px; }
+  footer { margin-top: 16px; }
+  @media (max-width: 700px) { .images { display: block; } figure { margin-bottom: 16px; } }
+</style>
+<header>
+  <h1>Real AppKit and GPUI</h1>
+  <label>Specimen <select id="specimen"><option value="controls">Controls</option><option value="sidebar">Sidebar</option></select></label>
+  <label>Appearance <select id="appearance"><option value="light">Light</option><option value="dark">Dark</option></select></label>
+  <label>View <select id="mode"><option value="side">Side by side</option><option value="overlay">Overlay</option></select></label>
+  <span id="blend-control"><label for="blend">GPUI opacity</label><input id="blend" type="range" min="0" max="100" value="50"><output id="percentage" for="blend">50%</output></span>
+</header>
+<p>Both windows are 1060 × 840 points on macOS 26.2. Both apps are background windows and use inactive control colors. GPUI hosts a real AppKit toolbar, window corners, sidebar glass and SF Symbols. Use the overlay to compare control shapes and spacing.</p>
+<p>The Sidebar specimen compares a real <code>NSOutlineView.sourceList</code> with the gallery navigation. Native row and cell measurements drive the GPUI dimensions. The GPUI sidebar continues behind the toolbar and beside the detail status bar; its edge treatment follows Apple's macOS 27 guidance. AppKit's source-list selection is vibrant: the ordinary opaque inactive-selection color does not reproduce its visible paint.</p>
+<main class="images" id="images">
+  <figure><figcaption>Swift / AppKit</figcaption><img id="native" src="images/native-reference-light.png" alt="Real AppKit system controls"></figure>
+  <figure id="gpui-figure"><figcaption>GPUI / gpui-macos</figcaption><img id="gpui" src="images/gpui-compare-light.png" alt="Matched GPUI controls"></figure>
+</main>
+<p>Secure-field mask geometry is now matched to the measured AppKit baseline: 5.5 point ink and 8 point spacing. The native measurement is from macOS 26.2; the library's design target is macOS 27. <a href="native-secure-metrics.json">Secure-field measurements</a> include the adapter font metrics.</p>
+<p>Canvas popups now host their GPUI foreground inside a separate AppKit glass window, allowing real glass to sample the main GPUI scene. The <a href="images/glass-canvas-light.png">interactive glass capture</a> shows a moved pane retaining its counter while blurring the canvas beneath it.</p>
+<p>The complete catalog covers 100 previews, all 80 upstream topics and all 69 module namespaces. Components without one system equivalent have explicit macOS workflow interpretations. Live checks also verify <a href="images/gallery-native-popover-light.png">interactive popovers</a> and <a href="images/gallery-native-submenu-light.png">separate glass submenus</a>. <a href="components.md">Component contracts and APIs</a></p>
+<p>Workflow interpretations retain Kit behavior: <a href="images/gallery-setup-assistant-light.png">Setup Assistant</a> keeps answers, validation and native-density commands; <a href="images/gallery-document-preview-light.png">document previews</a> keep images contained and support retained navigation. Validation includes 600 catalog draws and Clippy with speech and syntax grammar features enabled.</p>
+<footer><p>macOS 27 refinements use <a href="https://developer.apple.com/design/resources/">Apple Design Resources</a> and <a href="https://developer.apple.com/videos/play/wwdc2026/289/">AppKit guidance</a>. Controls remain GPUI-rendered. Unsupported systems and reduced transparency use opaque fallbacks. <a href="comparison.md">Comparison notes</a> · <a href="native-metrics.json">Measured metrics</a></p></footer>
+<script>
+  const appearance = document.querySelector('#appearance');
+  const specimen = document.querySelector('#specimen');
+  const mode = document.querySelector('#mode');
+  const blend = document.querySelector('#blend');
+  function update() {
+    const sidebar = specimen.value === 'sidebar';
+    document.querySelector('#native').src = `images/${sidebar ? 'native-sidebar' : 'native-reference'}-${appearance.value}.png`;
+    document.querySelector('#gpui').src = `images/${sidebar ? 'gpui-sidebar' : 'gpui-compare'}-${appearance.value}.png`;
+    const overlay = mode.value === 'overlay';
+    document.querySelector('#images').classList.toggle('overlay', overlay);
+    document.body.classList.toggle('blending', overlay);
+    document.querySelector('#gpui-figure').style.opacity = overlay ? blend.value / 100 : 1;
+    document.querySelector('#percentage').value = `${blend.value}%`;
+    document.documentElement.style.colorScheme = appearance.value;
+  }
+  [appearance, specimen, mode, blend].forEach(control => control.addEventListener('input', update));
+  update();
+</script>
+</html>

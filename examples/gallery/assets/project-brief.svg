@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="420" viewBox="0 0 600 420">
+  <rect width="600" height="420" rx="6" fill="#fff"/>
+  <g font-family="sans-serif" fill="#242424">
+    <text x="42" y="55" font-size="13" fill="#707070">STUDIO · PROJECT DOCUMENT</text>
+    <text x="42" y="94" font-size="27" font-weight="600">Project brief</text>
+    <text x="42" y="125" font-size="14" fill="#707070">A calmer workspace for everyday ideas.</text>
+    <text x="42" y="176" font-size="16" font-weight="600">What we’re building</text>
+    <text x="42" y="203" font-size="13">Organize documents, review changes, and keep work in sync.</text>
+    <text x="42" y="226" font-size="13">Use familiar controls and keep the content easy to read.</text>
+    <text x="42" y="281" font-size="16" font-weight="600">Milestones</text>
+    <text x="42" y="311" font-size="13">Research</text><text x="42" y="342" font-size="13">Prototype</text>
+    <text x="42" y="373" font-size="13">Review</text>
+  </g>
+  <path d="M42 145H558" stroke="#e6e6e6"/>
+  <g fill="#dce9fb"><rect x="163" y="298" width="352" height="15" rx="4"/><rect x="163" y="329" width="352" height="15" rx="4"/><rect x="163" y="360" width="352" height="15" rx="4"/></g>
+  <g fill="#147de9"><rect x="163" y="298" width="130" height="15" rx="4"/><rect x="245" y="329" width="180" height="15" rx="4"/><rect x="393" y="360" width="122" height="15" rx="4"/></g>
+</svg>

@@ -1,0 +1,1163 @@
+{
+  "dark" : {
+    "colors" : {
+      "accent" : {
+        "a" : 1,
+        "b" : 1,
+        "g" : 0.47843137254901963,
+        "r" : 0
+      },
+      "control" : {
+        "a" : 0.24705882352941178,
+        "b" : 1,
+        "g" : 1,
+        "r" : 1
+      },
+      "control_background" : {
+        "a" : 1,
+        "b" : 0.11764705882352941,
+        "g" : 0.11764705882352941,
+        "r" : 0.11764705882352941
+      },
+      "control_text" : {
+        "a" : 0.84705882352941175,
+        "b" : 1,
+        "g" : 1,
+        "r" : 1
+      },
+      "disabled_control_text" : {
+        "a" : 0.24705882352941178,
+        "b" : 1,
+        "g" : 1,
+        "r" : 1
+      },
+      "keyboard_focus" : {
+        "a" : 0.49803921580314636,
+        "b" : 1,
+        "g" : 0.66274511814117432,
+        "r" : 0.10196078568696976
+      },
+      "label" : {
+        "a" : 0.84705882352941175,
+        "b" : 1,
+        "g" : 1,
+        "r" : 1
+      },
+      "secondary_label" : {
+        "a" : 0.5490196078431373,
+        "b" : 1,
+        "g" : 1,
+        "r" : 1
+      },
+      "selected_content_background" : {
+        "a" : 1,
+        "b" : 0.81960785388946533,
+        "g" : 0.3490196168422699,
+        "r" : 0
+      },
+      "selected_control" : {
+        "a" : 1,
+        "b" : 0.54509806632995605,
+        "g" : 0.38823530077934265,
+        "r" : 0.24705882370471954
+      },
+      "selected_control_text" : {
+        "a" : 0.84705882352941175,
+        "b" : 1,
+        "g" : 1,
+        "r" : 1
+      },
+      "separator" : {
+        "a" : 0.098039215686274508,
+        "b" : 1,
+        "g" : 1,
+        "r" : 1
+      },
+      "tertiary_label" : {
+        "a" : 0.24705882352941178,
+        "b" : 1,
+        "g" : 1,
+        "r" : 1
+      },
+      "text_background" : {
+        "a" : 1,
+        "b" : 0.11764705882352941,
+        "g" : 0.11764705882352941,
+        "r" : 0.11764705882352941
+      },
+      "under_page_background" : {
+        "a" : 1,
+        "b" : 0.15686274509803921,
+        "g" : 0.15686274509803921,
+        "r" : 0.15686274509803921
+      },
+      "unemphasized_selected_content_background" : {
+        "a" : 1,
+        "b" : 0.27450980392156865,
+        "g" : 0.27450980392156865,
+        "r" : 0.27450980392156865
+      },
+      "unemphasized_selected_text" : {
+        "a" : 1,
+        "b" : 1,
+        "g" : 1,
+        "r" : 1
+      },
+      "window_background" : {
+        "a" : 1,
+        "b" : 0.11764705882352941,
+        "g" : 0.11764705882352941,
+        "r" : 0.11764705882352941
+      }
+    },
+    "controls" : {
+      "button_disabled" : {
+        "bezel_drawing_rect" : "{{12, 0}, {53, 24}}",
+        "bezel_style" : 1,
+        "fitting_height" : 24,
+        "fitting_width" : 77,
+        "font_points" : 13,
+        "frame_height" : 24,
+        "frame_width" : 77,
+        "intrinsic_height" : 24,
+        "intrinsic_width" : 77
+      },
+      "button_primary" : {
+        "bezel_drawing_rect" : "{{12, 0}, {55, 24}}",
+        "bezel_style" : 1,
+        "fitting_height" : 24,
+        "fitting_width" : 79,
+        "font_points" : 13,
+        "frame_height" : 24,
+        "frame_width" : 79,
+        "intrinsic_height" : 24,
+        "intrinsic_width" : 79
+      },
+      "button_secondary" : {
+        "bezel_drawing_rect" : "{{12, 0}, {42, 24}}",
+        "bezel_style" : 1,
+        "fitting_height" : 24,
+        "fitting_width" : 66,
+        "font_points" : 13,
+        "frame_height" : 24,
+        "frame_width" : 66,
+        "intrinsic_height" : 24,
+        "intrinsic_width" : 66
+      },
+      "checkbox" : {
+        "bezel_drawing_rect" : "{{0, 0}, {110, 16}}",
+        "bezel_style" : 2,
+        "fitting_height" : 16,
+        "fitting_width" : 110,
+        "font_points" : 13,
+        "frame_height" : 16,
+        "frame_width" : 110,
+        "intrinsic_height" : 16,
+        "intrinsic_width" : 110
+      },
+      "checkbox_mixed" : {
+        "bezel_drawing_rect" : "{{0, 0}, {117, 16}}",
+        "bezel_style" : 2,
+        "fitting_height" : 16,
+        "fitting_width" : 117,
+        "font_points" : 13,
+        "frame_height" : 16,
+        "frame_width" : 117,
+        "intrinsic_height" : 16,
+        "intrinsic_width" : 117
+      },
+      "popup" : {
+        "bezel_drawing_rect" : "{{12, 0}, {57, 24}}",
+        "bezel_style" : 1,
+        "fitting_height" : 24,
+        "fitting_width" : 104,
+        "font_points" : 13,
+        "frame_height" : 24,
+        "frame_width" : 104,
+        "intrinsic_height" : 24,
+        "intrinsic_width" : 104
+      },
+      "progress" : {
+        "fitting_height" : 20,
+        "fitting_width" : 0,
+        "frame_height" : 0,
+        "frame_width" : 0,
+        "intrinsic_height" : 20,
+        "intrinsic_width" : null
+      },
+      "radio" : {
+        "bezel_drawing_rect" : "{{0, 0}, {84, 16}}",
+        "bezel_style" : 2,
+        "fitting_height" : 16,
+        "fitting_width" : 84,
+        "font_points" : 13,
+        "frame_height" : 16,
+        "frame_width" : 84,
+        "intrinsic_height" : 16,
+        "intrinsic_width" : 84
+      },
+      "search_field" : {
+        "fitting_height" : 24,
+        "fitting_width" : 0,
+        "font_points" : 13,
+        "frame_height" : 24,
+        "frame_width" : 94,
+        "intrinsic_height" : 24,
+        "intrinsic_width" : null
+      },
+      "secure_field" : {
+        "fitting_height" : 24,
+        "fitting_width" : 0,
+        "font_points" : 13,
+        "frame_height" : 24,
+        "frame_width" : 53,
+        "intrinsic_height" : 24,
+        "intrinsic_width" : null
+      },
+      "segmented" : {
+        "fitting_height" : 24,
+        "fitting_width" : 221,
+        "font_points" : 13,
+        "frame_height" : 24,
+        "frame_width" : 221,
+        "intrinsic_height" : 24,
+        "intrinsic_width" : 221
+      },
+      "slider" : {
+        "fitting_height" : 16,
+        "fitting_width" : 0,
+        "font_points" : null,
+        "frame_height" : 16,
+        "frame_width" : 30,
+        "intrinsic_height" : 16,
+        "intrinsic_width" : null
+      },
+      "stepper" : {
+        "fitting_height" : 26,
+        "fitting_width" : 20,
+        "font_points" : null,
+        "frame_height" : 26,
+        "frame_width" : 20,
+        "intrinsic_height" : 26,
+        "intrinsic_width" : 20
+      },
+      "switch_off" : {
+        "fitting_height" : 24,
+        "fitting_width" : 54,
+        "font_points" : null,
+        "frame_height" : 24,
+        "frame_width" : 54,
+        "intrinsic_height" : 24,
+        "intrinsic_width" : 54
+      },
+      "switch_on" : {
+        "fitting_height" : 24,
+        "fitting_width" : 54,
+        "font_points" : null,
+        "frame_height" : 24,
+        "frame_width" : 54,
+        "intrinsic_height" : 24,
+        "intrinsic_width" : 54
+      },
+      "text_field" : {
+        "fitting_height" : 24,
+        "fitting_width" : 0,
+        "font_points" : 13,
+        "frame_height" : 24,
+        "frame_width" : 49,
+        "intrinsic_height" : 24,
+        "intrinsic_width" : null
+      }
+    },
+    "sidebar" : {
+      "indentation_per_level" : 13,
+      "intercell_spacing" : "{3, 0}",
+      "row_height" : 32,
+      "row_size_style" : -1,
+      "rows" : [
+        {
+          "cell" : "{{14, 0}, {204, 19}}",
+          "disclosure" : "{{0, 0}, {0, 0}}",
+          "font_points" : 11,
+          "group" : true,
+          "row" : "{{0, 0}, {220, 19}}",
+          "text" : "{{0, 2}, {204, 14}}",
+          "title" : "Explore"
+        },
+        {
+          "cell" : "{{16, 0}, {188, 32}}",
+          "disclosure" : "{{0, 0}, {0, 0}}",
+          "font_points" : 13,
+          "group" : false,
+          "image" : "{{3, 6.5}, {20, 19}}",
+          "row" : "{{0, 19}, {220, 32}}",
+          "text" : "{{28, 8}, {160, 16}}",
+          "title" : "Overview"
+        },
+        {
+          "cell" : "{{16, 0}, {188, 32}}",
+          "disclosure" : "{{0, 0}, {0, 0}}",
+          "font_points" : 13,
+          "group" : false,
+          "image" : "{{1, 6}, {24, 20}}",
+          "row" : "{{0, 51}, {220, 32}}",
+          "text" : "{{28, 8}, {160, 16}}",
+          "title" : "Theme"
+        },
+        {
+          "cell" : "{{16, 0}, {188, 32}}",
+          "disclosure" : "{{0, 0}, {0, 0}}",
+          "font_points" : 13,
+          "group" : false,
+          "image" : "{{1, 6.5}, {24, 19}}",
+          "row" : "{{0, 83}, {220, 32}}",
+          "text" : "{{28, 8}, {160, 16}}",
+          "title" : "Root"
+        },
+        {
+          "cell" : "{{16, 0}, {188, 32}}",
+          "disclosure" : "{{0, 0}, {0, 0}}",
+          "font_points" : 13,
+          "group" : false,
+          "image" : "{{1.5, 4}, {23, 23}}",
+          "row" : "{{0, 115}, {220, 32}}",
+          "text" : "{{28, 8}, {160, 16}}",
+          "title" : "Focus trap"
+        },
+        {
+          "cell" : "{{14, 0}, {204, 19}}",
+          "disclosure" : "{{0, 0}, {0, 0}}",
+          "font_points" : 11,
+          "group" : true,
+          "row" : "{{0, 160}, {220, 19}}",
+          "text" : "{{0, 3}, {204, 14}}",
+          "title" : "Actions"
+        },
+        {
+          "cell" : "{{16, 0}, {188, 32}}",
+          "disclosure" : "{{0, 0}, {0, 0}}",
+          "font_points" : 13,
+          "group" : false,
+          "image" : "{{1, 6.5}, {24, 19}}",
+          "row" : "{{0, 179}, {220, 32}}",
+          "text" : "{{28, 8}, {160, 16}}",
+          "title" : "Button"
+        }
+      ]
+    },
+    "sidebar_sizes" : {
+      "large" : {
+        "indentation_per_level" : 13,
+        "intercell_spacing" : "{3, 0}",
+        "row_height" : 40,
+        "row_size_style" : 3,
+        "rows" : [
+          {
+            "cell" : "{{14, 0}, {204, 19}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 11,
+            "group" : true,
+            "row" : "{{0, 0}, {220, 19}}",
+            "text" : "{{0, 2}, {204, 14}}",
+            "title" : "Explore"
+          },
+          {
+            "cell" : "{{16, 0}, {188, 40}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 15,
+            "group" : false,
+            "image" : "{{2.5, 9}, {23, 21}}",
+            "row" : "{{0, 19}, {220, 40}}",
+            "text" : "{{30, 10}, {158, 19}}",
+            "title" : "Overview"
+          },
+          {
+            "cell" : "{{16, 0}, {188, 40}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 15,
+            "group" : false,
+            "image" : "{{0.5, 8.5}, {27, 23}}",
+            "row" : "{{0, 59}, {220, 40}}",
+            "text" : "{{30, 10}, {158, 19}}",
+            "title" : "Theme"
+          },
+          {
+            "cell" : "{{16, 0}, {188, 40}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 15,
+            "group" : false,
+            "image" : "{{0, 9}, {28, 21}}",
+            "row" : "{{0, 99}, {220, 40}}",
+            "text" : "{{30, 10}, {158, 19}}",
+            "title" : "Root"
+          },
+          {
+            "cell" : "{{16, 0}, {188, 40}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 15,
+            "group" : false,
+            "image" : "{{1, 6.5}, {26, 26}}",
+            "row" : "{{0, 139}, {220, 40}}",
+            "text" : "{{30, 10}, {158, 19}}",
+            "title" : "Focus trap"
+          },
+          {
+            "cell" : "{{14, 0}, {204, 19}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 11,
+            "group" : true,
+            "row" : "{{0, 192}, {220, 19}}",
+            "text" : "{{0, 3}, {204, 14}}",
+            "title" : "Actions"
+          },
+          {
+            "cell" : "{{16, 0}, {188, 40}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 15,
+            "group" : false,
+            "image" : "{{0, 9}, {28, 21}}",
+            "row" : "{{0, 211}, {220, 40}}",
+            "text" : "{{30, 10}, {158, 19}}",
+            "title" : "Button"
+          }
+        ]
+      },
+      "medium" : {
+        "indentation_per_level" : 13,
+        "intercell_spacing" : "{3, 0}",
+        "row_height" : 32,
+        "row_size_style" : 2,
+        "rows" : [
+          {
+            "cell" : "{{14, 0}, {204, 19}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 11,
+            "group" : true,
+            "row" : "{{0, 0}, {220, 19}}",
+            "text" : "{{0, 2}, {204, 14}}",
+            "title" : "Explore"
+          },
+          {
+            "cell" : "{{16, 0}, {188, 32}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 13,
+            "group" : false,
+            "image" : "{{3, 6.5}, {20, 19}}",
+            "row" : "{{0, 19}, {220, 32}}",
+            "text" : "{{28, 8}, {160, 16}}",
+            "title" : "Overview"
+          },
+          {
+            "cell" : "{{16, 0}, {188, 32}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 13,
+            "group" : false,
+            "image" : "{{1, 6}, {24, 20}}",
+            "row" : "{{0, 51}, {220, 32}}",
+            "text" : "{{28, 8}, {160, 16}}",
+            "title" : "Theme"
+          },
+          {
+            "cell" : "{{16, 0}, {188, 32}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 13,
+            "group" : false,
+            "image" : "{{1, 6.5}, {24, 19}}",
+            "row" : "{{0, 83}, {220, 32}}",
+            "text" : "{{28, 8}, {160, 16}}",
+            "title" : "Root"
+          },
+          {
+            "cell" : "{{16, 0}, {188, 32}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 13,
+            "group" : false,
+            "image" : "{{1.5, 4}, {23, 23}}",
+            "row" : "{{0, 115}, {220, 32}}",
+            "text" : "{{28, 8}, {160, 16}}",
+            "title" : "Focus trap"
+          },
+          {
+            "cell" : "{{14, 0}, {204, 19}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 11,
+            "group" : true,
+            "row" : "{{0, 160}, {220, 19}}",
+            "text" : "{{0, 3}, {204, 14}}",
+            "title" : "Actions"
+          },
+          {
+            "cell" : "{{16, 0}, {188, 32}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 13,
+            "group" : false,
+            "image" : "{{1, 6.5}, {24, 19}}",
+            "row" : "{{0, 179}, {220, 32}}",
+            "text" : "{{28, 8}, {160, 16}}",
+            "title" : "Button"
+          }
+        ]
+      },
+      "small" : {
+        "indentation_per_level" : 13,
+        "intercell_spacing" : "{3, 0}",
+        "row_height" : 24,
+        "row_size_style" : 1,
+        "rows" : [
+          {
+            "cell" : "{{14, 0}, {204, 19}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 11,
+            "group" : true,
+            "row" : "{{0, 0}, {220, 19}}",
+            "text" : "{{0, 2}, {204, 14}}",
+            "title" : "Explore"
+          },
+          {
+            "cell" : "{{16, 0}, {188, 24}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 11,
+            "group" : false,
+            "image" : "{{2.5, 5.5}, {17, 15}}",
+            "row" : "{{0, 19}, {220, 24}}",
+            "text" : "{{24, 6}, {164, 14}}",
+            "title" : "Overview"
+          },
+          {
+            "cell" : "{{16, 0}, {188, 24}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 11,
+            "group" : false,
+            "image" : "{{1.5, 5}, {19, 17}}",
+            "row" : "{{0, 43}, {220, 24}}",
+            "text" : "{{24, 6}, {164, 14}}",
+            "title" : "Theme"
+          },
+          {
+            "cell" : "{{16, 0}, {188, 24}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 11,
+            "group" : false,
+            "image" : "{{0.5, 5.5}, {21, 15}}",
+            "row" : "{{0, 67}, {220, 24}}",
+            "text" : "{{24, 6}, {164, 14}}",
+            "title" : "Root"
+          },
+          {
+            "cell" : "{{16, 0}, {188, 24}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 11,
+            "group" : false,
+            "image" : "{{1.5, 3.5}, {19, 19}}",
+            "row" : "{{0, 91}, {220, 24}}",
+            "text" : "{{24, 6}, {164, 14}}",
+            "title" : "Focus trap"
+          },
+          {
+            "cell" : "{{14, 0}, {204, 19}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 11,
+            "group" : true,
+            "row" : "{{0, 128}, {220, 19}}",
+            "text" : "{{0, 3}, {204, 14}}",
+            "title" : "Actions"
+          },
+          {
+            "cell" : "{{16, 0}, {188, 24}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 11,
+            "group" : false,
+            "image" : "{{0.5, 5.5}, {21, 15}}",
+            "row" : "{{0, 147}, {220, 24}}",
+            "text" : "{{24, 6}, {164, 14}}",
+            "title" : "Button"
+          }
+        ]
+      }
+    }
+  },
+  "environment" : {
+    "font" : ".AppleSystemUIFont",
+    "implementation" : "Standard AppKit controls; intrinsic\/fitting dimensions are sampled, not inferred",
+    "os" : "Version 26.2 (Build 25C56)",
+    "sdk" : "macOS 26.2",
+    "system_font_size" : 13
+  },
+  "light" : {
+    "colors" : {
+      "accent" : {
+        "a" : 1,
+        "b" : 1,
+        "g" : 0.47843137254901963,
+        "r" : 0
+      },
+      "control" : {
+        "a" : 1,
+        "b" : 1,
+        "g" : 1,
+        "r" : 1
+      },
+      "control_background" : {
+        "a" : 1,
+        "b" : 1,
+        "g" : 1,
+        "r" : 1
+      },
+      "control_text" : {
+        "a" : 0.84705882352941175,
+        "b" : 0,
+        "g" : 0,
+        "r" : 0
+      },
+      "disabled_control_text" : {
+        "a" : 0.24705882352941178,
+        "b" : 0,
+        "g" : 0,
+        "r" : 0
+      },
+      "keyboard_focus" : {
+        "a" : 0.49803921580314636,
+        "b" : 0.95686274766921997,
+        "g" : 0.40392157435417175,
+        "r" : 0
+      },
+      "label" : {
+        "a" : 0.84705882352941175,
+        "b" : 0,
+        "g" : 0,
+        "r" : 0
+      },
+      "secondary_label" : {
+        "a" : 0.49803921568627452,
+        "b" : 0,
+        "g" : 0,
+        "r" : 0
+      },
+      "selected_content_background" : {
+        "a" : 1,
+        "b" : 0.88235294818878174,
+        "g" : 0.39215686917304993,
+        "r" : 0
+      },
+      "selected_control" : {
+        "a" : 1,
+        "b" : 1,
+        "g" : 0.84313726425170898,
+        "r" : 0.70196080207824707
+      },
+      "selected_control_text" : {
+        "a" : 0.84705882352941175,
+        "b" : 0,
+        "g" : 0,
+        "r" : 0
+      },
+      "separator" : {
+        "a" : 0.098039215686274508,
+        "b" : 0,
+        "g" : 0,
+        "r" : 0
+      },
+      "tertiary_label" : {
+        "a" : 0.25882352941176473,
+        "b" : 0,
+        "g" : 0,
+        "r" : 0
+      },
+      "text_background" : {
+        "a" : 1,
+        "b" : 1,
+        "g" : 1,
+        "r" : 1
+      },
+      "under_page_background" : {
+        "a" : 0.89803921568627454,
+        "b" : 0.58823529411764708,
+        "g" : 0.58823529411764708,
+        "r" : 0.58823529411764708
+      },
+      "unemphasized_selected_content_background" : {
+        "a" : 1,
+        "b" : 0.86274509803921573,
+        "g" : 0.86274509803921573,
+        "r" : 0.86274509803921573
+      },
+      "unemphasized_selected_text" : {
+        "a" : 1,
+        "b" : 0,
+        "g" : 0,
+        "r" : 0
+      },
+      "window_background" : {
+        "a" : 1,
+        "b" : 1,
+        "g" : 1,
+        "r" : 1
+      }
+    },
+    "controls" : {
+      "button_disabled" : {
+        "bezel_drawing_rect" : "{{12, 0}, {53, 24}}",
+        "bezel_style" : 1,
+        "fitting_height" : 24,
+        "fitting_width" : 77,
+        "font_points" : 13,
+        "frame_height" : 24,
+        "frame_width" : 77,
+        "intrinsic_height" : 24,
+        "intrinsic_width" : 77
+      },
+      "button_primary" : {
+        "bezel_drawing_rect" : "{{12, 0}, {55, 24}}",
+        "bezel_style" : 1,
+        "fitting_height" : 24,
+        "fitting_width" : 79,
+        "font_points" : 13,
+        "frame_height" : 24,
+        "frame_width" : 79,
+        "intrinsic_height" : 24,
+        "intrinsic_width" : 79
+      },
+      "button_secondary" : {
+        "bezel_drawing_rect" : "{{12, 0}, {42, 24}}",
+        "bezel_style" : 1,
+        "fitting_height" : 24,
+        "fitting_width" : 66,
+        "font_points" : 13,
+        "frame_height" : 24,
+        "frame_width" : 66,
+        "intrinsic_height" : 24,
+        "intrinsic_width" : 66
+      },
+      "checkbox" : {
+        "bezel_drawing_rect" : "{{0, 0}, {110, 16}}",
+        "bezel_style" : 2,
+        "fitting_height" : 16,
+        "fitting_width" : 110,
+        "font_points" : 13,
+        "frame_height" : 16,
+        "frame_width" : 110,
+        "intrinsic_height" : 16,
+        "intrinsic_width" : 110
+      },
+      "checkbox_mixed" : {
+        "bezel_drawing_rect" : "{{0, 0}, {117, 16}}",
+        "bezel_style" : 2,
+        "fitting_height" : 16,
+        "fitting_width" : 117,
+        "font_points" : 13,
+        "frame_height" : 16,
+        "frame_width" : 117,
+        "intrinsic_height" : 16,
+        "intrinsic_width" : 117
+      },
+      "popup" : {
+        "bezel_drawing_rect" : "{{12, 0}, {57, 24}}",
+        "bezel_style" : 1,
+        "fitting_height" : 24,
+        "fitting_width" : 104,
+        "font_points" : 13,
+        "frame_height" : 24,
+        "frame_width" : 104,
+        "intrinsic_height" : 24,
+        "intrinsic_width" : 104
+      },
+      "progress" : {
+        "fitting_height" : 20,
+        "fitting_width" : 0,
+        "frame_height" : 0,
+        "frame_width" : 0,
+        "intrinsic_height" : 20,
+        "intrinsic_width" : null
+      },
+      "radio" : {
+        "bezel_drawing_rect" : "{{0, 0}, {84, 16}}",
+        "bezel_style" : 2,
+        "fitting_height" : 16,
+        "fitting_width" : 84,
+        "font_points" : 13,
+        "frame_height" : 16,
+        "frame_width" : 84,
+        "intrinsic_height" : 16,
+        "intrinsic_width" : 84
+      },
+      "search_field" : {
+        "fitting_height" : 24,
+        "fitting_width" : 0,
+        "font_points" : 13,
+        "frame_height" : 24,
+        "frame_width" : 94,
+        "intrinsic_height" : 24,
+        "intrinsic_width" : null
+      },
+      "secure_field" : {
+        "fitting_height" : 24,
+        "fitting_width" : 0,
+        "font_points" : 13,
+        "frame_height" : 24,
+        "frame_width" : 53,
+        "intrinsic_height" : 24,
+        "intrinsic_width" : null
+      },
+      "segmented" : {
+        "fitting_height" : 24,
+        "fitting_width" : 221,
+        "font_points" : 13,
+        "frame_height" : 24,
+        "frame_width" : 221,
+        "intrinsic_height" : 24,
+        "intrinsic_width" : 221
+      },
+      "slider" : {
+        "fitting_height" : 16,
+        "fitting_width" : 0,
+        "font_points" : null,
+        "frame_height" : 16,
+        "frame_width" : 30,
+        "intrinsic_height" : 16,
+        "intrinsic_width" : null
+      },
+      "stepper" : {
+        "fitting_height" : 26,
+        "fitting_width" : 20,
+        "font_points" : null,
+        "frame_height" : 26,
+        "frame_width" : 20,
+        "intrinsic_height" : 26,
+        "intrinsic_width" : 20
+      },
+      "switch_off" : {
+        "fitting_height" : 24,
+        "fitting_width" : 54,
+        "font_points" : null,
+        "frame_height" : 24,
+        "frame_width" : 54,
+        "intrinsic_height" : 24,
+        "intrinsic_width" : 54
+      },
+      "switch_on" : {
+        "fitting_height" : 24,
+        "fitting_width" : 54,
+        "font_points" : null,
+        "frame_height" : 24,
+        "frame_width" : 54,
+        "intrinsic_height" : 24,
+        "intrinsic_width" : 54
+      },
+      "text_field" : {
+        "fitting_height" : 24,
+        "fitting_width" : 0,
+        "font_points" : 13,
+        "frame_height" : 24,
+        "frame_width" : 49,
+        "intrinsic_height" : 24,
+        "intrinsic_width" : null
+      }
+    },
+    "sidebar" : {
+      "indentation_per_level" : 13,
+      "intercell_spacing" : "{3, 0}",
+      "row_height" : 32,
+      "row_size_style" : -1,
+      "rows" : [
+        {
+          "cell" : "{{14, 0}, {204, 19}}",
+          "disclosure" : "{{0, 0}, {0, 0}}",
+          "font_points" : 11,
+          "group" : true,
+          "row" : "{{0, 0}, {220, 19}}",
+          "text" : "{{0, 2}, {204, 14}}",
+          "title" : "Explore"
+        },
+        {
+          "cell" : "{{16, 0}, {188, 32}}",
+          "disclosure" : "{{0, 0}, {0, 0}}",
+          "font_points" : 13,
+          "group" : false,
+          "image" : "{{3, 6.5}, {20, 19}}",
+          "row" : "{{0, 19}, {220, 32}}",
+          "text" : "{{28, 8}, {160, 16}}",
+          "title" : "Overview"
+        },
+        {
+          "cell" : "{{16, 0}, {188, 32}}",
+          "disclosure" : "{{0, 0}, {0, 0}}",
+          "font_points" : 13,
+          "group" : false,
+          "image" : "{{1, 6}, {24, 20}}",
+          "row" : "{{0, 51}, {220, 32}}",
+          "text" : "{{28, 8}, {160, 16}}",
+          "title" : "Theme"
+        },
+        {
+          "cell" : "{{16, 0}, {188, 32}}",
+          "disclosure" : "{{0, 0}, {0, 0}}",
+          "font_points" : 13,
+          "group" : false,
+          "image" : "{{1, 6.5}, {24, 19}}",
+          "row" : "{{0, 83}, {220, 32}}",
+          "text" : "{{28, 8}, {160, 16}}",
+          "title" : "Root"
+        },
+        {
+          "cell" : "{{16, 0}, {188, 32}}",
+          "disclosure" : "{{0, 0}, {0, 0}}",
+          "font_points" : 13,
+          "group" : false,
+          "image" : "{{1.5, 4}, {23, 23}}",
+          "row" : "{{0, 115}, {220, 32}}",
+          "text" : "{{28, 8}, {160, 16}}",
+          "title" : "Focus trap"
+        },
+        {
+          "cell" : "{{14, 0}, {204, 19}}",
+          "disclosure" : "{{0, 0}, {0, 0}}",
+          "font_points" : 11,
+          "group" : true,
+          "row" : "{{0, 160}, {220, 19}}",
+          "text" : "{{0, 3}, {204, 14}}",
+          "title" : "Actions"
+        },
+        {
+          "cell" : "{{16, 0}, {188, 32}}",
+          "disclosure" : "{{0, 0}, {0, 0}}",
+          "font_points" : 13,
+          "group" : false,
+          "image" : "{{1, 6.5}, {24, 19}}",
+          "row" : "{{0, 179}, {220, 32}}",
+          "text" : "{{28, 8}, {160, 16}}",
+          "title" : "Button"
+        }
+      ]
+    },
+    "sidebar_sizes" : {
+      "large" : {
+        "indentation_per_level" : 13,
+        "intercell_spacing" : "{3, 0}",
+        "row_height" : 40,
+        "row_size_style" : 3,
+        "rows" : [
+          {
+            "cell" : "{{14, 0}, {204, 19}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 11,
+            "group" : true,
+            "row" : "{{0, 0}, {220, 19}}",
+            "text" : "{{0, 2}, {204, 14}}",
+            "title" : "Explore"
+          },
+          {
+            "cell" : "{{16, 0}, {188, 40}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 15,
+            "group" : false,
+            "image" : "{{2.5, 9}, {23, 21}}",
+            "row" : "{{0, 19}, {220, 40}}",
+            "text" : "{{30, 10}, {158, 19}}",
+            "title" : "Overview"
+          },
+          {
+            "cell" : "{{16, 0}, {188, 40}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 15,
+            "group" : false,
+            "image" : "{{0.5, 8.5}, {27, 23}}",
+            "row" : "{{0, 59}, {220, 40}}",
+            "text" : "{{30, 10}, {158, 19}}",
+            "title" : "Theme"
+          },
+          {
+            "cell" : "{{16, 0}, {188, 40}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 15,
+            "group" : false,
+            "image" : "{{0, 9}, {28, 21}}",
+            "row" : "{{0, 99}, {220, 40}}",
+            "text" : "{{30, 10}, {158, 19}}",
+            "title" : "Root"
+          },
+          {
+            "cell" : "{{16, 0}, {188, 40}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 15,
+            "group" : false,
+            "image" : "{{1, 6.5}, {26, 26}}",
+            "row" : "{{0, 139}, {220, 40}}",
+            "text" : "{{30, 10}, {158, 19}}",
+            "title" : "Focus trap"
+          },
+          {
+            "cell" : "{{14, 0}, {204, 19}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 11,
+            "group" : true,
+            "row" : "{{0, 192}, {220, 19}}",
+            "text" : "{{0, 3}, {204, 14}}",
+            "title" : "Actions"
+          },
+          {
+            "cell" : "{{16, 0}, {188, 40}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 15,
+            "group" : false,
+            "image" : "{{0, 9}, {28, 21}}",
+            "row" : "{{0, 211}, {220, 40}}",
+            "text" : "{{30, 10}, {158, 19}}",
+            "title" : "Button"
+          }
+        ]
+      },
+      "medium" : {
+        "indentation_per_level" : 13,
+        "intercell_spacing" : "{3, 0}",
+        "row_height" : 32,
+        "row_size_style" : 2,
+        "rows" : [
+          {
+            "cell" : "{{14, 0}, {204, 19}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 11,
+            "group" : true,
+            "row" : "{{0, 0}, {220, 19}}",
+            "text" : "{{0, 2}, {204, 14}}",
+            "title" : "Explore"
+          },
+          {
+            "cell" : "{{16, 0}, {188, 32}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 13,
+            "group" : false,
+            "image" : "{{3, 6.5}, {20, 19}}",
+            "row" : "{{0, 19}, {220, 32}}",
+            "text" : "{{28, 8}, {160, 16}}",
+            "title" : "Overview"
+          },
+          {
+            "cell" : "{{16, 0}, {188, 32}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 13,
+            "group" : false,
+            "image" : "{{1, 6}, {24, 20}}",
+            "row" : "{{0, 51}, {220, 32}}",
+            "text" : "{{28, 8}, {160, 16}}",
+            "title" : "Theme"
+          },
+          {
+            "cell" : "{{16, 0}, {188, 32}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 13,
+            "group" : false,
+            "image" : "{{1, 6.5}, {24, 19}}",
+            "row" : "{{0, 83}, {220, 32}}",
+            "text" : "{{28, 8}, {160, 16}}",
+            "title" : "Root"
+          },
+          {
+            "cell" : "{{16, 0}, {188, 32}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 13,
+            "group" : false,
+            "image" : "{{1.5, 4}, {23, 23}}",
+            "row" : "{{0, 115}, {220, 32}}",
+            "text" : "{{28, 8}, {160, 16}}",
+            "title" : "Focus trap"
+          },
+          {
+            "cell" : "{{14, 0}, {204, 19}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 11,
+            "group" : true,
+            "row" : "{{0, 160}, {220, 19}}",
+            "text" : "{{0, 3}, {204, 14}}",
+            "title" : "Actions"
+          },
+          {
+            "cell" : "{{16, 0}, {188, 32}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 13,
+            "group" : false,
+            "image" : "{{1, 6.5}, {24, 19}}",
+            "row" : "{{0, 179}, {220, 32}}",
+            "text" : "{{28, 8}, {160, 16}}",
+            "title" : "Button"
+          }
+        ]
+      },
+      "small" : {
+        "indentation_per_level" : 13,
+        "intercell_spacing" : "{3, 0}",
+        "row_height" : 24,
+        "row_size_style" : 1,
+        "rows" : [
+          {
+            "cell" : "{{14, 0}, {204, 19}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 11,
+            "group" : true,
+            "row" : "{{0, 0}, {220, 19}}",
+            "text" : "{{0, 2}, {204, 14}}",
+            "title" : "Explore"
+          },
+          {
+            "cell" : "{{16, 0}, {188, 24}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 11,
+            "group" : false,
+            "image" : "{{2.5, 5.5}, {17, 15}}",
+            "row" : "{{0, 19}, {220, 24}}",
+            "text" : "{{24, 6}, {164, 14}}",
+            "title" : "Overview"
+          },
+          {
+            "cell" : "{{16, 0}, {188, 24}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 11,
+            "group" : false,
+            "image" : "{{1.5, 5}, {19, 17}}",
+            "row" : "{{0, 43}, {220, 24}}",
+            "text" : "{{24, 6}, {164, 14}}",
+            "title" : "Theme"
+          },
+          {
+            "cell" : "{{16, 0}, {188, 24}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 11,
+            "group" : false,
+            "image" : "{{0.5, 5.5}, {21, 15}}",
+            "row" : "{{0, 67}, {220, 24}}",
+            "text" : "{{24, 6}, {164, 14}}",
+            "title" : "Root"
+          },
+          {
+            "cell" : "{{16, 0}, {188, 24}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 11,
+            "group" : false,
+            "image" : "{{1.5, 3.5}, {19, 19}}",
+            "row" : "{{0, 91}, {220, 24}}",
+            "text" : "{{24, 6}, {164, 14}}",
+            "title" : "Focus trap"
+          },
+          {
+            "cell" : "{{14, 0}, {204, 19}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 11,
+            "group" : true,
+            "row" : "{{0, 128}, {220, 19}}",
+            "text" : "{{0, 3}, {204, 14}}",
+            "title" : "Actions"
+          },
+          {
+            "cell" : "{{16, 0}, {188, 24}}",
+            "disclosure" : "{{0, 0}, {0, 0}}",
+            "font_points" : 11,
+            "group" : false,
+            "image" : "{{0.5, 5.5}, {21, 15}}",
+            "row" : "{{0, 147}, {220, 24}}",
+            "text" : "{{24, 6}, {164, 14}}",
+            "title" : "Button"
+          }
+        ]
+      }
+    }
+  }
+}

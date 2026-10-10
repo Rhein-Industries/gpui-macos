@@ -1,0 +1,7 @@
+tree-sitter-proto 0.2.0
+Published license declaration: MIT
+Declared authors: Mohammad Ashar Khan <ashar786khan@gmail.com>
+The published crate declares MIT but contains no separate license text; the declared upstream repository also omits it or its GitLab license endpoint is unavailable. Full canonical MIT terms accompany the exact published license declaration, declared authors and any source copyright notices below. MIT is the selected alternative where dual-licensed. No copyright holder or year has been invented.
+
+Source copyright notices:
+No explicit copyright notice found in the packaged text source.

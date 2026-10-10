@@ -1,0 +1,99 @@
+//! Short, non-interactive explanations with GPUI's tooltip lifecycle.
+use crate::ActiveTheme;
+use gpui_kit::rems;
+use gpui_kit::{
+    App, AppContext, Context, Render, SharedString, StatefulInteractiveElement, Window, prelude::*,
+};
+use std::time::Duration;
+
+/// A composable tooltip surface, retaining the base tooltip role and styling API.
+pub fn tooltip(text: impl Into<SharedString>, cx: &App) -> gpui_kit::base::Tooltip {
+    let t = cx.macos();
+    gpui_kit::base::Tooltip::new("macos-tooltip")
+        .max_w(rems(20.))
+        .px(rems(0.625))
+        .py(rems(0.375))
+        .border_1()
+        .rounded(rems(0.375))
+        .border_color(t.glass_border())
+        .bg(t.glass_fill())
+        .shadow(t.control_shadow())
+        .text_color(t.foreground)
+        .font_family(t.font.clone())
+        .text_size(rems(0.6875))
+        .child(text.into())
+}
+
+/// Attach a macOS tooltip without changing the control's concrete type.
+/// GPUI owns hover delay, placement, dismissal, and cleanup when the owner leaves.
+/// Keep an accessible label on icon-only controls; a tooltip is supplementary.
+pub fn with_tooltip<T: StatefulInteractiveElement>(control: T, text: impl Into<SharedString>) -> T {
+    let text = text.into();
+    control
+        .tooltip_show_delay(Duration::from_millis(400))
+        .tooltip(move |_, cx| cx.new(|_| TooltipText(text.clone())).into())
+}
+
+struct TooltipText(SharedString);
+impl Render for TooltipText {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        gpui_kit::div()
+            .debug_selector(|| "macos-tooltip-surface".into())
+            .child(tooltip(self.0.clone(), cx))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui_kit::px;
+    use gpui_kit::{Render, TestAppContext, point};
+    struct Harness;
+    impl Render for Harness {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            gpui_kit::div().size_full().child(with_tooltip(
+                crate::button("favorite", "Favorite", crate::ButtonVariant::Secondary, cx),
+                "Add to favorites",
+            ))
+        }
+    }
+    #[gpui_kit::test]
+    fn tooltip_waits_for_hover_and_hides_on_pointer_leave(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let (_, cx) = cx.add_window_view(|_, _| Harness);
+        cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+        });
+        cx.simulate_event(gpui_kit::MouseMoveEvent {
+            position: point(px(10.), px(10.)),
+            pressed_button: None,
+            modifiers: Default::default(),
+        });
+        cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+        });
+        cx.dispatcher.advance_clock(Duration::from_millis(399));
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+        });
+        assert!(cx.debug_bounds("macos-tooltip-surface").is_none());
+        cx.dispatcher.advance_clock(Duration::from_millis(1));
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+        });
+        assert!(cx.debug_bounds("macos-tooltip-surface").is_some());
+        cx.simulate_event(gpui_kit::MouseMoveEvent {
+            position: point(px(400.), px(400.)),
+            pressed_button: None,
+            modifiers: Default::default(),
+        });
+        cx.dispatcher.advance_clock(Duration::from_secs(1));
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+        });
+        assert!(cx.debug_bounds("macos-tooltip-surface").is_none());
+    }
+}

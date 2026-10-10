@@ -1,0 +1,6 @@
+/target/
+/artifacts/
+.DS_Store
+*.panic.log
+__pycache__/
+*.py[cod]

@@ -1,0 +1,68 @@
+{
+  "adapter": {
+    "advance": 8,
+    "character": "●",
+    "font_family": "Helvetica Neue",
+    "font_points": 12.8,
+    "ink_height": 5.452800000000001,
+    "ink_width": 5.4528
+  },
+  "environment": {
+    "os": "Version 26.2 (Build 25C56)",
+    "scale": 2
+  },
+  "native": {
+    "advances": [
+      8,
+      8,
+      8,
+      8
+    ],
+    "font_points": 13,
+    "ink_boxes": [
+      {
+        "ink_height": 5.5,
+        "ink_width": 5.5,
+        "left": 7.5,
+        "top": 9.5
+      },
+      {
+        "ink_height": 5.5,
+        "ink_width": 5.5,
+        "left": 15.5,
+        "top": 9.5
+      },
+      {
+        "ink_height": 5.5,
+        "ink_width": 5.5,
+        "left": 23.5,
+        "top": 9.5
+      },
+      {
+        "ink_height": 5.5,
+        "ink_width": 5.5,
+        "left": 31.5,
+        "top": 9.5
+      },
+      {
+        "ink_height": 5.5,
+        "ink_width": 5.5,
+        "left": 39.5,
+        "top": 9.5
+      }
+    ]
+  },
+  "schema_version": 1,
+  "measurement": {
+    "implementation": "Actual NSSecureTextField.cell drawn offscreen; public CoreText adapter glyph metrics",
+    "source": "../tools/native-reference/measure-secure-mask.swift",
+    "units": "logical points",
+    "sample": "macOS",
+    "field_size": {
+      "width": 170,
+      "height": 24
+    },
+    "target_design": "macOS 27",
+    "scope": "Measured on macOS 26.2, not on macOS 27; no target-system raster equivalence is claimed"
+  }
+}

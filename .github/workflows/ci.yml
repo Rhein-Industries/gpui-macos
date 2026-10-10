@@ -1,0 +1,18 @@
+name: macOS validation
+on: [push, pull_request]
+jobs:
+  check:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo check --all-targets --locked
+      - run: cargo check --all-targets --features speech,tree-sitter-languages --locked
+      - run: cargo test --all-targets --locked
+      - run: cargo test --doc --locked
+      - run: cargo clippy --all-targets --locked -- -D warnings
