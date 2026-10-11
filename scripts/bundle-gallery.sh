@@ -17,6 +17,7 @@ import json, pathlib, shutil, subprocess, sys
 metadata = json.loads(subprocess.check_output([
     'cargo', 'metadata', '--format-version', '1', '--no-deps'
 ]))
+version = next(package['version'] for package in metadata['packages'] if package['name'] == 'gpui-macos')
 target = pathlib.Path(metadata['target_directory']) / sys.argv[1]
 bundle = target / 'GPUI macOS Gallery.app'
 contents = bundle / 'Contents'
@@ -35,8 +36,8 @@ info = {
         'CFBundleDisplayName': 'GPUI macOS Gallery',
         'CFBundleExecutable': 'gpui-macos-gallery',
         'CFBundlePackageType': 'APPL',
-        'CFBundleShortVersionString': '0.1.0',
-        'CFBundleVersion': '1',
+        'CFBundleShortVersionString': version,
+        'CFBundleVersion': version,
         'NSHighResolutionCapable': True,
         'LSMinimumSystemVersion': '12.0',
     }

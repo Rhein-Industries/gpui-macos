@@ -1,6 +1,6 @@
 //! Contextual controls in an anchored, non-modal surface.
 use crate::ActiveTheme;
-use crate::motion::{POPUP_FADE, out_cubic};
+use crate::motion::{POPUP_FADE, animated_duration, out_cubic};
 use gpui_kit::base::motion::Presence;
 use gpui_kit::base::{Popover, PopoverState};
 use gpui_kit::rems;
@@ -57,7 +57,10 @@ pub fn popover<E: IntoElement>(
 pub(crate) fn popup_fade(id: &ElementId, window: &mut Window, cx: &mut App) -> f32 {
     let fade_id = ElementId::NamedChild(id.clone().into(), "macos-popup-fade".into());
     let sample = Presence::new(fade_id, true)
-        .transition(out_cubic(POPUP_FADE))
+        // Non-key native hover panels cannot drive animation frames. Keep
+        // their content visible on the first frame, including inline fallbacks
+        // shown by an inactive owner window.
+        .transition(out_cubic(animated_duration(window, POPUP_FADE)))
         .sample(window, cx);
     #[cfg(test)]
     tests::LAST_FADE.with(|fade| fade.set(sample.progress));
@@ -218,7 +221,11 @@ mod tests {
             cx.update(|window, cx| window.draw(cx).clear(cx));
             LAST_FADE.with(Cell::get)
         };
-        cx.update(|window, cx| view.read(cx).trigger.clone().focus(window, cx));
+        cx.update(|window, cx| {
+            window.activate_window();
+            view.read(cx).trigger.clone().focus(window, cx);
+        });
+        cx.run_until_parked();
         draw(cx);
         for _ in 0..2 {
             cx.simulate_keystrokes("enter");
@@ -234,5 +241,24 @@ mod tests {
             draw(cx);
             assert!(cx.debug_bounds("test-popover-content").is_none());
         }
+    }
+
+    #[gpui_kit::test]
+    fn inactive_popups_are_visible_without_animation_frames(cx: &mut TestAppContext) {
+        struct BackgroundPopup;
+        impl Render for BackgroundPopup {
+            fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+                div().opacity(popup_fade(&"background-popup".into(), window, cx))
+            }
+        }
+        cx.update(crate::init);
+        let (_, cx) = cx.add_window_view(|_, _| BackgroundPopup);
+        cx.deactivate_window();
+        cx.update(|window, cx| {
+            window.refresh();
+            window.draw(cx).clear(cx);
+            assert_eq!(LAST_FADE.with(Cell::get), 1.);
+            assert_eq!(window.simulate_next_frame(cx), 0);
+        });
     }
 }

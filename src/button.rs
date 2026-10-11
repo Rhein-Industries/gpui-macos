@@ -249,7 +249,9 @@ impl RenderOnce for Button {
             transition(
                 (self.id.clone(), "macos-fill"),
                 target,
-                crate::motion::color(self.fill_duration),
+                // Background windows pause animation clocks. Apply theme and
+                // control changes immediately rather than retaining stale fills.
+                crate::motion::color(crate::motion::animated_duration(window, self.fill_duration)),
                 window,
                 cx,
             )
@@ -396,6 +398,55 @@ mod tests {
         redraw(cx);
         assert_eq!(fill("fill"), rest);
     }
+
+    #[gpui_kit::test]
+    fn background_button_fill_updates_immediately_when_the_theme_changes(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        struct Harness;
+        impl Render for Harness {
+            fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+                div().children([false, true].map(|disabled| {
+                    crate::button(
+                        if disabled {
+                            "disabled-fill"
+                        } else {
+                            "background-fill"
+                        },
+                        "Choose",
+                        crate::ButtonVariant::Secondary,
+                        cx,
+                    )
+                    .bg(cx.macos().control_fill())
+                    .disabled(disabled)
+                }))
+            }
+        }
+        let (view, cx) = cx.add_window_view(|_, _| Harness);
+        cx.deactivate_window();
+        for theme in [
+            crate::Theme::dark(),
+            crate::Theme::light(),
+            crate::Theme::dark(),
+        ] {
+            cx.update(|window, cx| {
+                assert!(!window.is_window_active());
+                theme.apply(cx);
+            });
+            view.update(cx, |_, cx| cx.notify());
+            cx.update(|window, cx| {
+                window.draw(cx).clear(cx);
+                let expected = cx.macos().control_fill();
+                for id in ["background-fill", "disabled-fill"] {
+                    assert_eq!(
+                        fill(id),
+                        expected,
+                        "Inactive fills must follow the new theme without animation frames"
+                    );
+                }
+            });
+        }
+    }
+
     #[gpui_kit::test]
     fn disabled_button_suppresses_hover_and_pressed_geometry(cx: &mut TestAppContext) {
         cx.update(crate::init);

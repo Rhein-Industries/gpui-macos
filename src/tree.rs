@@ -10,8 +10,9 @@ pub fn tree(state: &Entity<TreeState>, cx: &App) -> Tree {
         .h(rems(17.5))
         .w_full()
         .list_style(div().size_full().style().clone())
-        .item(move |_, entry, state, _, _| {
+        .item(move |_, entry, state, window, _| {
             let id = entry.item().id.clone();
+            let active = window.is_window_active();
             div()
                 .debug_selector(move || format!("macos-tree-{id}"))
                 .flex()
@@ -25,12 +26,12 @@ pub fn tree(state: &Entity<TreeState>, cx: &App) -> Tree {
                 .font_family(t.font.clone())
                 .text_size(rems(0.8125))
                 .text_color(if state.is_selected() {
-                    t.on_accent
+                    crate::controls::control_mark(&t, active)
                 } else {
                     t.foreground
                 })
                 .bg(if state.is_selected() {
-                    t.accent
+                    crate::controls::control_selection(&t, active)
                 } else {
                     t.foreground.opacity(0.)
                 })
@@ -106,5 +107,44 @@ mod tests {
         cx.simulate_keystrokes("right");
         cx.update(|window, cx| window.draw(cx).clear(cx));
         assert!(cx.debug_bounds("macos-tree-first").is_some());
+    }
+
+    #[gpui_kit::test]
+    fn selected_tree_rows_follow_their_windows_activation_and_theme(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let (view, cx) = cx.add_window_view(|_, cx| Harness {
+            state: cx
+                .new(|cx| TreeState::new(cx).items(vec![TreeItem::new("selected", "Documents")])),
+        });
+        cx.update(|_, cx| {
+            view.read(cx)
+                .state
+                .clone()
+                .update(cx, |state, cx| state.set_selected_index(Some(0), cx));
+        });
+        for theme in [crate::Theme::light(), crate::Theme::dark()] {
+            cx.update(|_, cx| theme.apply(cx));
+            for active in [true, false] {
+                if active {
+                    cx.update(|window, _| window.activate_window());
+                    cx.run_until_parked();
+                } else {
+                    cx.deactivate_window();
+                }
+                view.update(cx, |_, cx| cx.notify());
+                cx.update(|window, cx| window.draw(cx).clear(cx));
+                let row = cx.debug_bounds("macos-tree-selected").unwrap();
+                cx.update(|window, cx| {
+                    let expected = crate::controls::control_selection(cx.macos(), active);
+                    assert!(
+                        window.painted_quads().iter().any(|quad| {
+                            quad.bounds == row.scale(window.scale_factor())
+                                && quad.background.as_solid() == Some(expected)
+                        }),
+                        "Tree selection must follow its window's actual activation state"
+                    );
+                });
+            }
+        }
     }
 }

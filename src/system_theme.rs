@@ -6,6 +6,7 @@ use std::collections::HashSet;
 struct AppearancePolicy {
     following: bool,
     windows: HashSet<gpui_kit::WindowId>,
+    closed: Option<gpui_kit::Subscription>,
 }
 impl Global for AppearancePolicy {}
 
@@ -46,6 +47,12 @@ fn sync(cx: &mut App) {
 /// Follow macOS light/dark changes for this window. The observer lives with it.
 /// Repeated calls on the same window do not install duplicate subscriptions.
 pub fn observe_window(window: &mut Window, cx: &mut App) {
+    if cx.default_global::<AppearancePolicy>().closed.is_none() {
+        let closed = cx.on_window_closed(|cx, id| {
+            cx.default_global::<AppearancePolicy>().windows.remove(&id);
+        });
+        cx.default_global::<AppearancePolicy>().closed = Some(closed);
+    }
     if cx
         .default_global::<AppearancePolicy>()
         .windows
@@ -68,4 +75,53 @@ pub fn refresh_accessibility(cx: &mut App) {
     theme.read_accessibility();
     theme.apply_palette(cx);
     gpui_kit::base::apply_system_reduce_motion(cx);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui_kit::{Context, IntoElement, Render, TestAppContext, div, px, size};
+
+    struct ObservedWindow;
+    impl Render for ObservedWindow {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+        }
+    }
+
+    #[gpui_kit::test]
+    fn appearance_observation_forgets_closed_windows_and_keeps_live_windows(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(crate::init);
+        let open = |cx: &mut TestAppContext| {
+            cx.open_window(size(px(100.), px(100.)), |window, cx| {
+                observe_window(window, cx);
+                observe_window(window, cx);
+                ObservedWindow
+            })
+        };
+        let persistent = open(cx);
+        for _ in 0..20 {
+            let temporary = open(cx);
+            cx.update(|cx| assert_eq!(cx.global::<AppearancePolicy>().windows.len(), 2));
+            temporary
+                .update(cx, |_, window, _| window.remove_window())
+                .unwrap();
+            cx.run_until_parked();
+            cx.update(|cx| {
+                assert_eq!(cx.global::<AppearancePolicy>().windows.len(), 1);
+                assert!(
+                    cx.global::<AppearancePolicy>()
+                        .windows
+                        .contains(&persistent.window_id())
+                );
+            });
+        }
+        persistent
+            .update(cx, |_, window, _| window.remove_window())
+            .unwrap();
+        cx.run_until_parked();
+        cx.update(|cx| assert!(cx.global::<AppearancePolicy>().windows.is_empty()));
+    }
 }

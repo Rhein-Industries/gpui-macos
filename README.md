@@ -65,7 +65,7 @@ Add the published crate:
 
 ```toml
 [dependencies]
-gpui-macos = "0.1.0"
+gpui-macos = "0.1.1"
 ```
 
 For development from a checkout, use `gpui-macos = { path = "../gpui-macos" }`.

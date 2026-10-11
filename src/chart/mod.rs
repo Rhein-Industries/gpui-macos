@@ -134,21 +134,25 @@ pub(crate) fn point_value_scale<Y>(
 where
     Y: PlotValue,
 {
-    let domain: Vec<Y> = match domain {
-        Some((min, max)) => vec![min, max],
-        None => values.into_iter().chain(Some(Y::zero())).collect(),
+    let (min, max) = match domain {
+        Some((min, max)) if min > max => (max, min),
+        Some(domain) => domain,
+        None => values
+            .into_iter()
+            .fold((Y::zero(), Y::zero()), |(min, max), value| {
+                (
+                    if value < min { value } else { min },
+                    if value > max { value } else { max },
+                )
+            }),
     };
-    let (lo, hi) = domain
-        .iter()
-        .filter_map(|v| v.to_f64())
-        .fold((f64::MAX, f64::MIN), |(lo, hi), v| (lo.min(v), hi.max(v)));
     let extent = ValueExtent {
-        lo,
-        hi,
+        lo: min.to_f64().unwrap_or(0.),
+        hi: max.to_f64().unwrap_or(0.),
         bottom: height - bottom,
         top,
     };
-    (ScaleLinear::new(domain, [height - bottom, top]), extent)
+    (ScaleLinear::new([min, max], [height - bottom, top]), extent)
 }
 
 /// The height the charts reserve under the plot for x-axis labels, which they
@@ -215,7 +219,9 @@ pub(crate) fn labeled_items(
             }
             labeled
         }
-        None => (0..len).map(|i| (i + 1) % tick_margin == 0).collect(),
+        None => (0..len)
+            .map(|i| (i + 1) % tick_margin.max(1) == 0)
+            .collect(),
     }
 }
 
@@ -537,14 +543,13 @@ where
             if !labeled.get(i).copied().unwrap_or(false) {
                 return None;
             }
-            x_scale.tick(&x_fn(d)).map(|x_tick| {
+            x_scale.tick_at(i).map(|x_tick| {
                 let align = match i {
                     0 if point_count == 1 => TextAlign::Center,
                     0 => TextAlign::Left,
                     i if i == point_count - 1 => TextAlign::Right,
                     _ => TextAlign::Center,
                 };
-                // Call x_fn again to get an owned value for the label text.
                 AxisText::new(x_fn(d).into(), x_tick, color).align(align)
             })
         })
@@ -574,9 +579,9 @@ where
             if !labeled.get(i).copied().unwrap_or(false) {
                 return None;
             }
-            x_scale.tick(&x_fn(d)).map(|x_tick| {
-                // Call x_fn again to get an owned value for the label text.
-                AxisText::new(x_fn(d).into(), x_tick + band_width / 2., color)
+            let label = x_fn(d);
+            x_scale.tick(&label).map(|x_tick| {
+                AxisText::new(label.into(), x_tick + band_width / 2., color)
                     .align(TextAlign::Center)
             })
         })
@@ -704,6 +709,8 @@ mod tests {
 
         // Without a count the stride still decides.
         assert_eq!(labeled_items(4, None, 2), vec![false, true, false, true]);
+        assert_eq!(labeled_items(4, None, 0), vec![true; 4]);
+        assert!(labeled_items(0, None, 0).is_empty());
     }
 
     /// A tick label reads the value its height stands for, so the top one reads
@@ -721,6 +728,133 @@ mod tests {
         let (_, extent) = point_value_scale([0.], Some((100., 200.)), 100., (0., 0.));
         assert_eq!(extent.value_at(0.), 200.);
         assert_eq!(extent.position_of(150.), Some(50.));
+
+        let (scale, extent) = point_value_scale([0.], Some((200., 100.)), 100., (0., 0.));
+        use crate::plot::scale::Scale;
+        assert_eq!(extent.position_of(150.), scale.tick(&150.));
+        assert_eq!(extent.value_at(0.), 200.);
+    }
+
+    #[derive(Clone)]
+    struct CountedCategory {
+        index: usize,
+        comparisons: std::rc::Rc<Cell<usize>>,
+    }
+
+    impl PartialEq for CountedCategory {
+        fn eq(&self, other: &Self) -> bool {
+            self.comparisons.set(self.comparisons.get() + 1);
+            self.index == other.index
+        }
+    }
+
+    impl From<CountedCategory> for SharedString {
+        fn from(value: CountedCategory) -> Self {
+            value.index.to_string().into()
+        }
+    }
+
+    struct LargePointChart {
+        area: bool,
+        comparisons: std::rc::Rc<Cell<usize>>,
+        value_reads: std::rc::Rc<Cell<usize>>,
+    }
+
+    impl gpui_kit::Render for LargePointChart {
+        fn render(
+            &mut self,
+            _: &mut gpui_kit::Window,
+            _: &mut gpui_kit::Context<Self>,
+        ) -> impl gpui_kit::IntoElement {
+            use gpui_kit::{IntoElement, ParentElement, Styled};
+            let comparisons = self.comparisons.clone();
+            let x = move |&(index, _): &(usize, f64)| CountedCategory {
+                index,
+                comparisons: comparisons.clone(),
+            };
+            let data = (0..2048).map(|index| (index, (index % 17 + 1) as f64));
+            let value_reads = self.value_reads.clone();
+            let y = move |d: &(usize, f64)| {
+                value_reads.set(value_reads.get() + 1);
+                d.1
+            };
+            let chart = if self.area {
+                super::AreaChart::new(data)
+                    .x(x)
+                    .y(y)
+                    .x_tick_count(8)
+                    .into_any_element()
+            } else {
+                super::LineChart::new(data)
+                    .x(x)
+                    .y(y)
+                    .x_tick_count(8)
+                    .into_any_element()
+            };
+            div().w(px(640.)).h(px(320.)).child(chart)
+        }
+    }
+
+    #[gpui_kit::test]
+    fn point_chart_rendering_does_not_search_the_domain_per_point(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        for area in [false, true] {
+            let comparisons = std::rc::Rc::new(Cell::new(0));
+            let value_reads = std::rc::Rc::new(Cell::new(0));
+            let (_, cx) = cx.add_window_view({
+                let comparisons = comparisons.clone();
+                let value_reads = value_reads.clone();
+                move |_, _| LargePointChart {
+                    area,
+                    comparisons,
+                    value_reads,
+                }
+            });
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            assert!(
+                value_reads.get() >= 2048,
+                "The regression check must exercise the complete series"
+            );
+            assert_eq!(
+                comparisons.get(),
+                0,
+                "Point positions must be projected by index in linear time"
+            );
+        }
+    }
+
+    #[gpui_kit::test]
+    fn repeated_point_labels_keep_distinct_positions_and_hover_targets(cx: &mut TestAppContext) {
+        use crate::plot::scale::ScalePoint;
+        cx.update(|cx| {
+            crate::init(cx);
+            let bounds = gpui_kit::Bounds::new(point(px(0.), px(0.)), size(px(100.), px(100.)));
+            let line = super::LineChart::new([1., 2., 3.])
+                .x(|_| "Repeated")
+                .y(|d| *d)
+                .x_axis(false);
+            let area = super::AreaChart::new([1., 2., 3.])
+                .x(|_| "Repeated")
+                .y(|d| *d)
+                .x_axis(false);
+            for state in [
+                line.tooltip_state(point(px(100.), px(50.)), bounds, cx),
+                area.tooltip_state(point(px(100.), px(50.)), bounds, cx),
+            ] {
+                let state = state.unwrap();
+                assert_eq!(state.index, 2);
+                assert_eq!(state.cross_line.x, px(100.));
+                assert_eq!(state.dots[0].x, px(100.));
+            }
+            let data = ["Repeated"; 3];
+            let scale = ScalePoint::new(data, [0., 100.]);
+            let labels =
+                super::build_point_x_labels(&data, &|d| *d, &scale, 3, &[true; 3], Hsla::default());
+            assert_eq!(
+                labels.iter().map(|label| label.tick).collect::<Vec<_>>(),
+                [px(0.), px(50.), px(100.)]
+            );
+        });
     }
 
     /// Unset, the tooltip reads the chart's own title and the raw number;

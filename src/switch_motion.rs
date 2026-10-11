@@ -35,7 +35,7 @@ impl RenderOnce for SwitchMotion {
         let t = cx.macos().clone();
         let active = window.is_window_active();
         let checked = self.checked;
-        let fade = color(CONTROL_COLOR);
+        let fade = color(crate::motion::animated_duration(window, CONTROL_COLOR));
         let track_bg = transition(
             "macos-switch-track-bg",
             if checked {
@@ -57,7 +57,7 @@ impl RenderOnce for SwitchMotion {
         let travel = transition(
             "macos-switch-thumb-x",
             if checked { 1f32 } else { 0. },
-            out_cubic(SWITCH_TRAVEL),
+            out_cubic(crate::motion::animated_duration(window, SWITCH_TRAVEL)),
             window,
             cx,
         );
@@ -93,6 +93,7 @@ impl RenderOnce for SwitchMotion {
 
 #[cfg(test)]
 mod tests {
+    use crate::ActiveTheme;
     use gpui_kit::{Context, Render, TestAppContext, VisualTestContext, prelude::*};
     use std::time::Duration;
 
@@ -135,6 +136,8 @@ mod tests {
     fn knob_slides_to_on_over_the_switch_travel(cx: &mut TestAppContext) {
         cx.update(crate::init);
         let (view, cx) = cx.add_window_view(|_, _| Harness { checked: false });
+        cx.update(|window, _| window.activate_window());
+        cx.run_until_parked();
         let off = thumb_x(cx);
 
         toggle(&view, cx);
@@ -157,11 +160,39 @@ mod tests {
             cx.set_reduce_motion(true);
         });
         let (view, cx) = cx.add_window_view(|_, _| Harness { checked: false });
+        cx.update(|window, _| window.activate_window());
+        cx.run_until_parked();
         let off = thumb_x(cx);
         toggle(&view, cx);
         let on = thumb_x(cx);
         assert!(on > off);
         cx.executor().advance_clock(Duration::from_millis(200));
         assert_eq!(thumb_x(cx), on);
+    }
+
+    #[gpui_kit::test]
+    fn inactive_switches_apply_state_and_theme_changes_without_waiting_for_frames(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(crate::init);
+        let (view, cx) = cx.add_window_view(|_, _| Harness { checked: false });
+        cx.deactivate_window();
+        let off = thumb_x(cx);
+        toggle(&view, cx);
+        let on = thumb_x(cx);
+        assert!(on > off, "The first inactive frame must show the new state");
+        cx.update(|_, cx| crate::Theme::dark().apply(cx));
+        assert_eq!(thumb_x(cx), on);
+        let track = cx.debug_bounds("macos-switch-track-wifi").unwrap();
+        cx.update(|window, cx| {
+            let expected = crate::controls::control_selection(cx.macos(), false);
+            assert!(window.painted_quads().iter().any(|quad| {
+                quad.bounds == track.scale(window.scale_factor())
+                    && quad.background.as_solid() == Some(expected)
+            }));
+            assert_eq!(window.simulate_next_frame(cx), 0);
+        });
+        toggle(&view, cx);
+        assert_eq!(thumb_x(cx), off);
     }
 }

@@ -43,7 +43,7 @@ pub fn slider(
     if !active {
         pointer.update(cx, |pressed, _| *pressed = false);
     }
-    let travel = if *pointer.read(cx) {
+    let travel = if *pointer.read(cx) || !active {
         Transition::new(Duration::ZERO)
     } else {
         out_cubic(SLIDER_TRAVEL)
@@ -140,7 +140,7 @@ pub fn slider(
         let scale = transition(
             (ElementId::from(("macos-slider-knob", id)), edge),
             if hot { HOT_KNOB_SCALE } else { 1. },
-            out_cubic(SLIDER_KNOB_SCALE),
+            out_cubic(crate::motion::animated_duration(window, SLIDER_KNOB_SCALE)),
             window,
             cx,
         );
@@ -343,6 +343,40 @@ mod tests {
             .size
             .width;
         assert_eq!(rested, px(20.));
+    }
+
+    #[gpui_kit::test]
+    fn inactive_sliders_show_new_values_without_animation_frames(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        for (initial, next) in [
+            (SliderValue::Single(0.), SliderValue::Single(100.)),
+            (SliderValue::Range(20., 80.), SliderValue::Range(40., 60.)),
+        ] {
+            let state = cx.new(|_| SliderState::new().min(0.).max(100.).default_value(initial));
+            let (_, cx) = cx.add_window_view(|_, _| Harness {
+                state: state.clone(),
+            });
+            cx.deactivate_window();
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.update(|window, cx| state.update(cx, |state, cx| state.set_value(next, window, cx)));
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            let values = match next {
+                SliderValue::Single(end) => vec![("macos-slider-thumb-end", end)],
+                SliderValue::Range(start, end) => vec![
+                    ("macos-slider-thumb-start", start),
+                    ("macos-slider-thumb-end", end),
+                ],
+            };
+            for (id, value) in values {
+                let thumb = cx.debug_bounds(id).unwrap();
+                let expected = 10. + 196. * value / 100.;
+                assert!(
+                    (thumb.center().x.as_f32() - expected).abs() <= 0.5,
+                    "The first inactive frame must show {value}% at {expected}px: {thumb:?}"
+                );
+            }
+            cx.update(|window, cx| assert_eq!(window.simulate_next_frame(cx), 0));
+        }
     }
 
     #[gpui_kit::test]

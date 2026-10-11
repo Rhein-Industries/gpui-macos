@@ -23,6 +23,52 @@ pub fn secure_field(
     window: &mut Window,
     cx: &mut App,
 ) -> Input {
-    state.update(cx, |state, cx| state.set_masked(true, window, cx));
+    if !state.read(cx).presentation().is_masked() {
+        state.update(cx, |state, cx| state.set_masked(true, window, cx));
+    }
     input(id, state, window, cx)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui_kit::{AppContext, Context, IntoElement, Render, TestAppContext};
+    use std::{cell::Cell, rc::Rc};
+
+    struct SecureField(Entity<InputState>);
+
+    impl Render for SecureField {
+        fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            secure_field("password", &self.0, window, cx)
+        }
+    }
+
+    #[gpui_kit::test]
+    fn secure_field_does_not_notify_its_editor_on_unchanged_redraws(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let notifications = Rc::new(Cell::new(0));
+        let observed = notifications.clone();
+        let (view, cx) = cx.add_window_view(move |window, cx| {
+            let state = cx.new(|cx| InputState::new(window, cx).default_value("secret"));
+            cx.observe(&state, move |_, _, _| observed.set(observed.get() + 1))
+                .detach();
+            SecureField(state)
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.run_until_parked();
+        notifications.set(0);
+        for _ in 0..3 {
+            cx.update(|window, cx| {
+                window.refresh();
+                window.draw(cx).clear(cx);
+                assert!(view.read(cx).0.read(cx).presentation().is_masked());
+            });
+            cx.run_until_parked();
+        }
+        assert_eq!(
+            notifications.get(),
+            0,
+            "Rendering a secure field must not schedule another redraw"
+        );
+    }
 }

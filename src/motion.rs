@@ -7,6 +7,15 @@ pub(crate) const SWITCH_TRAVEL: Duration = Duration::from_millis(180);
 pub(crate) const POPUP_FADE: Duration = Duration::from_millis(160);
 pub(crate) const SLIDER_TRAVEL: Duration = Duration::from_millis(140);
 pub(crate) const SLIDER_KNOB_SCALE: Duration = Duration::from_millis(110);
+/// Inactive windows may pause display refreshes. Snap changes to their current
+/// state so controls do not retain old values while an animation waits to run.
+pub(crate) fn animated_duration(window: &gpui_kit::Window, duration: Duration) -> Duration {
+    if window.is_window_active() {
+        duration
+    } else {
+        Duration::ZERO
+    }
+}
 pub(crate) fn color(duration: Duration) -> Transition {
     Transition::new(duration).ease(|t| t)
 }

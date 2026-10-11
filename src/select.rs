@@ -5,6 +5,9 @@ use gpui_kit::rems;
 use gpui_kit::{
     App, Context, ElementId, Entity, FocusHandle, Focusable, SharedString, Window, div, prelude::*,
 };
+use std::{cell::RefCell, rc::Rc};
+
+type VisibleChoices = (Option<SharedString>, Rc<Vec<usize>>);
 
 #[derive(Clone, Debug)]
 pub struct ChoiceItem {
@@ -30,6 +33,8 @@ impl ChoiceItem {
 /// Use one entity per control; Select and Combobox share the same value model.
 pub struct ChoiceState {
     items: Vec<ChoiceItem>,
+    search_labels: Vec<String>,
+    visible_cache: RefCell<Option<VisibleChoices>>,
     selected: Option<usize>,
     cursor: Option<usize>,
     open: bool,
@@ -40,7 +45,7 @@ pub struct ChoiceState {
     popup_focus: FocusHandle,
     query: Entity<InputState>,
     searchable: bool,
-    scroll: gpui_kit::ScrollHandle,
+    scroll: gpui_kit::UniformListScrollHandle,
     popup_width: gpui_kit::Pixels,
 }
 impl ChoiceState {
@@ -57,15 +62,23 @@ impl ChoiceState {
                         .or_else(|| this.items.iter().position(|item| !item.disabled))
                 } else {
                     this.visible(cx)
-                        .into_iter()
+                        .iter()
+                        .copied()
                         .find(|&i| !this.items[i].disabled)
                 };
-                this.scroll.set_offset(gpui_kit::Point::default());
+                let row = this
+                    .cursor
+                    .and_then(|i| this.visible(cx).binary_search(&i).ok())
+                    .unwrap_or(0);
+                this.scroll
+                    .scroll_to_item_strict(row, gpui_kit::ScrollStrategy::Top);
                 cx.notify();
             },
         )
         .detach();
         Self {
+            search_labels: items.iter().map(|item| item.label.to_lowercase()).collect(),
+            visible_cache: RefCell::default(),
             items,
             selected: None,
             cursor: None,
@@ -77,7 +90,7 @@ impl ChoiceState {
             popup_focus: cx.focus_handle(),
             query,
             searchable: false,
-            scroll: gpui_kit::ScrollHandle::new(),
+            scroll: gpui_kit::UniformListScrollHandle::new(),
             popup_width: rems(17.5).to_pixels(window.rem_size()),
         }
     }
@@ -111,17 +124,26 @@ impl ChoiceState {
         self.selected = index.filter(|&i| self.items.get(i).is_some_and(|item| !item.disabled));
         cx.notify();
     }
-    fn visible(&self, cx: &App) -> Vec<usize> {
-        let query = if self.searchable {
-            self.query.read(cx).value().trim().to_lowercase()
+    fn visible(&self, cx: &App) -> Rc<Vec<usize>> {
+        let query = self.searchable.then(|| self.query.read(cx).value());
+        let mut cache = self.visible_cache.borrow_mut();
+        if let Some((cached_query, visible)) = cache.as_ref()
+            && *cached_query == query
+        {
+            return visible.clone();
+        }
+        let normalized = query.as_deref().unwrap_or("").trim().to_lowercase();
+        let visible: Rc<Vec<usize>> = Rc::new(if normalized.is_empty() {
+            (0..self.items.len()).collect()
         } else {
-            String::new()
-        };
-        self.items
-            .iter()
-            .enumerate()
-            .filter_map(|(i, item)| item.label.to_lowercase().contains(&query).then_some(i))
-            .collect()
+            self.search_labels
+                .iter()
+                .enumerate()
+                .filter_map(|(i, label)| label.contains(&normalized).then_some(i))
+                .collect()
+        });
+        *cache = Some((query, visible.clone()));
+        visible
     }
     fn set_open(&mut self, open: bool, window: &mut Window, cx: &mut Context<Self>) {
         if self.disabled || self.open == open {
@@ -142,6 +164,10 @@ impl ChoiceState {
             self.cursor = self
                 .selected
                 .or_else(|| self.items.iter().position(|item| !item.disabled));
+            if let Some(cursor) = self.cursor {
+                self.scroll
+                    .scroll_to_item(cursor, gpui_kit::ScrollStrategy::Nearest);
+            }
             if self.searchable {
                 self.query.update(cx, |query, cx| query.focus(window, cx));
             } else {
@@ -190,33 +216,32 @@ impl ChoiceState {
     }
     fn navigate(&mut self, key: &str, cx: &mut Context<Self>) {
         let visible = self.visible(cx);
-        let enabled: Vec<_> = visible
-            .iter()
-            .copied()
-            .filter(|&i| !self.items[i].disabled)
-            .collect();
-        let position = self
-            .cursor
-            .and_then(|i| enabled.iter().position(|&v| v == i));
-        self.cursor = if enabled.is_empty() {
+        let position = self.cursor.and_then(|i| visible.binary_search(&i).ok());
+        let len = visible.len();
+        let row = if len == 0 {
             None
         } else {
-            Some(
-                enabled[match key {
-                    "home" => 0,
-                    "end" => enabled.len() - 1,
-                    "up" => position.map_or(enabled.len() - 1, |i| {
-                        (i + enabled.len() - 1) % enabled.len()
-                    }),
-                    _ => position.map_or(0, |i| (i + 1) % enabled.len()),
-                }],
-            )
+            let backwards = matches!(key, "up" | "end");
+            let start = match key {
+                "home" => 0,
+                "end" => len - 1,
+                "up" => position.map_or(len - 1, |i| (i + len - 1) % len),
+                _ => position.map_or(0, |i| (i + 1) % len),
+            };
+            (0..len)
+                .map(|offset| {
+                    if backwards {
+                        (start + len - offset) % len
+                    } else {
+                        (start + offset) % len
+                    }
+                })
+                .find(|&row| !self.items[visible[row]].disabled)
         };
-        if let Some(row) = self
-            .cursor
-            .and_then(|i| visible.iter().position(|&v| v == i))
-        {
-            self.scroll.scroll_to_item(row);
+        self.cursor = row.map(|row| visible[row]);
+        if let Some(row) = row {
+            self.scroll
+                .scroll_to_item(row, gpui_kit::ScrollStrategy::Nearest);
         }
         cx.notify();
     }
@@ -432,14 +457,8 @@ fn choice_content(
     let focus = choice.popup_focus.clone();
     let query = choice.query.clone();
     let visible = choice.visible(cx);
-    let cursor = choice.cursor;
-    let selected = choice.selected;
-    let items = choice.items.clone();
     let scroll = choice.scroll.clone();
     let popup_width = choice.popup_width;
-    let window_active = window.is_window_active();
-    let cursor_fill = crate::controls::control_selection(&t, window_active);
-    let cursor_text = crate::controls::control_mark(&t, window_active);
     if crate::native::is_glass_popup(window) {
         let first = window.use_keyed_state("choice-native-focus", cx, |_, _| true);
         if *first.read(cx) {
@@ -489,91 +508,32 @@ fn choice_content(
                 .px(rems(0.375)),
         );
     }
-    let mut rows = div()
+    let rows = div()
         .id("choice-options")
         .role(gpui_kit::Role::ListBox)
-        .max_h(rems(14.))
-        .overflow_y_scroll()
-        .track_scroll(&scroll)
         .flex()
         .flex_col();
-    if visible.is_empty() {
-        rows = rows.child(
+    let rows = if visible.is_empty() {
+        rows.child(
             div()
                 .p(rems(0.625))
                 .text_color(t.secondary)
                 .child("No matching options"),
-        );
-    }
-    for index in visible {
-        let target = state.clone();
-        let hover = state.clone();
-        let item = &items[index];
-        rows = rows.child(
-            button(("choice-option", index), "", ButtonVariant::Secondary, cx)
-                .fill_duration(std::time::Duration::ZERO)
-                .accessibility_label(item.label.clone())
-                .debug_selector(move || format!("macos-choice-option-{index}"))
-                .role(gpui_kit::Role::ListBoxOption)
-                .aria_selected(selected == Some(index))
-                .when(cursor == Some(index), |row| row.aria_active_descendant())
-                .focusable(false)
-                .disabled(item.disabled)
-                .w_full()
-                .h(rems(1.5))
-                .py(rems(0.))
-                .px(rems(0.375))
-                .gap(rems(0.375))
-                .justify_start()
-                .rounded(rems(0.375))
-                .border_color(t.foreground.opacity(0.))
-                .shadow(Vec::new())
-                .bg(if cursor == Some(index) {
-                    cursor_fill
-                } else {
-                    t.foreground.opacity(0.)
-                })
-                .text_color(if cursor == Some(index) {
-                    cursor_text
-                } else {
-                    t.foreground
-                })
-                .hover(|s| s.bg(cursor_fill).text_color(cursor_text))
-                .active(|s| s.bg(cursor_fill).text_color(cursor_text))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .text_ellipsis()
-                        .child(item.label.clone()),
-                )
-                .child(
-                    div()
-                        .w(rems(0.875))
-                        .flex_shrink_0()
-                        .when(selected == Some(index), |mark| {
-                            mark.child(icon(IconName::Check).size(rems(0.875)))
-                        }),
-                )
-                .on_hover(move |hovered, window, cx| {
-                    if *hovered {
-                        hover.update(cx, |state, cx| {
-                            if !state.items[index].disabled {
-                                state.cursor = Some(index);
-                                cx.notify();
-                                window.refresh();
-                            }
-                        });
-                    }
-                })
-                .on_click(move |_, window, cx| {
-                    target.update(cx, |state, cx| {
-                        state.cursor = Some(index);
-                        state.commit(window, cx);
-                    })
-                }),
-        );
-    }
+        )
+    } else {
+        let render = state.clone();
+        let count = visible.len();
+        rows.child(
+            gpui_kit::uniform_list("choice-visible-options", count, move |range, window, cx| {
+                range
+                    .map(|row| choice_option(&render, visible[row], window, cx))
+                    .collect()
+            })
+            .w_full()
+            .h(rems((count as f32 * 1.5).min(14.)))
+            .track_scroll(&scroll),
+        )
+    };
     if crate::native::is_glass_popup(window) {
         content = content
             .bg(gpui_kit::transparent_black())
@@ -581,6 +541,85 @@ fn choice_content(
             .shadow_none();
     }
     choice_keys(content.child(rows), state, searchable)
+}
+
+fn choice_option(
+    state: &Entity<ChoiceState>,
+    index: usize,
+    window: &Window,
+    cx: &App,
+) -> crate::Button {
+    let choice = state.read(cx);
+    let item = &choice.items[index];
+    let cursor = choice.cursor;
+    let selected = choice.selected;
+    let t = cx.macos();
+    let cursor_fill = crate::controls::control_selection(t, window.is_window_active());
+    let cursor_text = crate::controls::control_mark(t, window.is_window_active());
+    let target = state.clone();
+    let hover = state.clone();
+    button(("choice-option", index), "", ButtonVariant::Secondary, cx)
+        .fill_duration(std::time::Duration::ZERO)
+        .accessibility_label(item.label.clone())
+        .debug_selector(move || format!("macos-choice-option-{index}"))
+        .role(gpui_kit::Role::ListBoxOption)
+        .aria_selected(selected == Some(index))
+        .when(cursor == Some(index), |row| row.aria_active_descendant())
+        .focusable(false)
+        .disabled(item.disabled)
+        .w_full()
+        .h(rems(1.5))
+        .py(rems(0.))
+        .px(rems(0.375))
+        .gap(rems(0.375))
+        .justify_start()
+        .rounded(rems(0.375))
+        .border_color(t.foreground.opacity(0.))
+        .shadow(Vec::new())
+        .bg(if cursor == Some(index) {
+            cursor_fill
+        } else {
+            t.foreground.opacity(0.)
+        })
+        .text_color(if cursor == Some(index) {
+            cursor_text
+        } else {
+            t.foreground
+        })
+        .hover(|s| s.bg(cursor_fill).text_color(cursor_text))
+        .active(|s| s.bg(cursor_fill).text_color(cursor_text))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_ellipsis()
+                .child(item.label.clone()),
+        )
+        .child(
+            div()
+                .w(rems(0.875))
+                .flex_shrink_0()
+                .when(selected == Some(index), |mark| {
+                    mark.child(icon(IconName::Check).size(rems(0.875)))
+                }),
+        )
+        .on_hover(move |hovered, window, cx| {
+            if *hovered {
+                hover.update(cx, |state, cx| {
+                    if !state.items[index].disabled && state.cursor != Some(index) {
+                        state.cursor = Some(index);
+                        cx.notify();
+                        window.refresh();
+                    }
+                });
+            }
+        })
+        .on_click(move |_, window, cx| {
+            target.update(cx, |state, cx| {
+                state.cursor = Some(index);
+                state.commit(window, cx);
+            })
+        })
 }
 
 #[cfg(test)]
@@ -610,20 +649,30 @@ mod tests {
         searchable: bool,
         disabled: bool,
     ) -> (Entity<ChoiceState>, &mut VisualTestContext) {
+        harness_with_items(
+            cx,
+            searchable,
+            disabled,
+            vec![
+                ChoiceItem::new("first", "First"),
+                ChoiceItem::new("disabled", "Disabled").disabled(true),
+                ChoiceItem::new("last", "Last"),
+            ],
+        )
+    }
+
+    fn harness_with_items(
+        cx: &mut TestAppContext,
+        searchable: bool,
+        disabled: bool,
+        items: Vec<ChoiceItem>,
+    ) -> (Entity<ChoiceState>, &mut VisualTestContext) {
         cx.update(crate::init);
         let (view, cx) = cx.add_window_view(move |window, cx| {
             let state = cx.new(|cx| {
-                ChoiceState::new(
-                    vec![
-                        ChoiceItem::new("first", "First"),
-                        ChoiceItem::new("disabled", "Disabled").disabled(true),
-                        ChoiceItem::new("last", "Last"),
-                    ],
-                    window,
-                    cx,
-                )
-                .default_selected(0)
-                .disabled(disabled)
+                ChoiceState::new(items, window, cx)
+                    .default_selected(0)
+                    .disabled(disabled)
             });
             cx.observe(&state, |_, _, cx| cx.notify()).detach();
             Harness { state, searchable }
@@ -786,16 +835,14 @@ mod tests {
     }
     #[gpui_kit::test]
     fn keyboard_cursor_scrolls_long_list_into_view(cx: &mut TestAppContext) {
-        let (state, cx) = harness(cx, false, false);
-        cx.update(|window, cx| {
-            state.update(cx, |state, cx| {
-                state.items = (0..30)
-                    .map(|i| ChoiceItem::new(i.to_string(), format!("Workspace {i}")))
-                    .collect();
-                cx.notify();
-            });
-            window.draw(cx).clear(cx);
-        });
+        let (state, cx) = harness_with_items(
+            cx,
+            false,
+            false,
+            (0..30)
+                .map(|i| ChoiceItem::new(i.to_string(), format!("Workspace {i}")))
+                .collect(),
+        );
         cx.simulate_keystrokes("enter");
         cx.update(|window, cx| {
             window.draw(cx).clear(cx);
@@ -809,5 +856,102 @@ mod tests {
         assert!(popup.contains(&last.center()));
         cx.simulate_keystrokes("enter");
         cx.update(|_, cx| assert_eq!(state.read(cx).selected().unwrap().value.as_ref(), "29"));
+    }
+
+    #[gpui_kit::test]
+    fn large_choices_render_visible_rows_and_reveal_the_keyboard_cursor(cx: &mut TestAppContext) {
+        for searchable in [false, true] {
+            let (state, cx) = harness_with_items(
+                cx,
+                searchable,
+                false,
+                (0..10_000)
+                    .map(|i| ChoiceItem::new(i.to_string(), format!("Workspace {i}")))
+                    .collect(),
+            );
+            cx.simulate_keystrokes("enter");
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            assert!(cx.debug_bounds("macos-choice-option-0").is_some());
+            assert!(
+                cx.debug_bounds("macos-choice-option-5000").is_none(),
+                "Offscreen options must not be built"
+            );
+            cx.simulate_keystrokes(if searchable { "ctrl-p" } else { "end" });
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            let last = cx.debug_bounds("macos-choice-option-9999").unwrap();
+            assert!(
+                cx.debug_bounds("macos-choice-popup")
+                    .unwrap()
+                    .contains(&last.center())
+            );
+            cx.simulate_keystrokes("enter");
+            cx.update(|window, cx| {
+                window.draw(cx).clear(cx);
+                assert_eq!(state.read(cx).selected().unwrap().value.as_ref(), "9999");
+                assert!(!state.read(cx).open);
+                assert!(state.read(cx).trigger_focus.is_focused(window));
+            });
+            cx.simulate_keystrokes("enter");
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            assert!(
+                cx.debug_bounds("macos-choice-popup").unwrap().contains(
+                    &cx.debug_bounds("macos-choice-option-9999")
+                        .unwrap()
+                        .center()
+                ),
+                "Reopening reveals the selected option"
+            );
+        }
+    }
+
+    #[gpui_kit::test]
+    fn choice_filter_cache_tracks_query_and_control_mode(cx: &mut TestAppContext) {
+        let (state, cx) = harness(cx, true, false);
+        cx.simulate_keystrokes("enter");
+        cx.simulate_input("  LAST  ");
+        cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            let filtered = state.read(cx).visible(cx);
+            assert_eq!(filtered.as_slice(), &[2]);
+            assert!(
+                Rc::ptr_eq(&filtered, &state.read(cx).visible(cx)),
+                "Unchanged queries reuse the filtered indices"
+            );
+            state.update(cx, |state, _| state.searchable = false);
+            assert_eq!(state.read(cx).visible(cx).as_slice(), &[0, 1, 2]);
+            state.update(cx, |state, _| state.searchable = true);
+            assert_eq!(state.read(cx).visible(cx).as_slice(), &[2]);
+        });
+        cx.simulate_keystrokes("escape enter");
+        cx.update(|_, cx| assert_eq!(state.read(cx).visible(cx).as_slice(), &[0, 1, 2]));
+    }
+
+    #[gpui_kit::test]
+    fn clearing_a_search_reveals_the_selected_option_in_a_large_combobox(cx: &mut TestAppContext) {
+        let (state, cx) = harness_with_items(
+            cx,
+            true,
+            false,
+            (0..10_000)
+                .map(|i| ChoiceItem::new(i.to_string(), format!("Workspace {i}")))
+                .collect(),
+        );
+        cx.update(|_, cx| state.update(cx, |state, cx| state.set_selected(Some(9999), cx)));
+        cx.simulate_keystrokes("enter");
+        cx.simulate_input("Workspace 5");
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.simulate_keystrokes("cmd-a backspace");
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert_eq!(cx.update(|_, cx| state.read(cx).cursor), Some(9999));
+        assert!(
+            cx.debug_bounds("macos-choice-popup").unwrap().contains(
+                &cx.debug_bounds("macos-choice-option-9999")
+                    .expect("Selected option must be rendered")
+                    .center()
+            )
+        );
+        cx.simulate_keystrokes("enter");
+        cx.update(|_, cx| assert_eq!(state.read(cx).selected().unwrap().value.as_ref(), "9999"));
     }
 }

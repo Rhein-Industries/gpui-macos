@@ -2,7 +2,7 @@
 
 The release consists of `gpui-macos` and five independently named forks of GPUI Kit. Local development uses sibling paths; published manifests use exact registry versions. Applications continue importing `gpui_macos::gpui_kit` and `gpui_macos::kit`, with no consumer patch table.
 
-The crates.io API reported all six names unclaimed on October 10, 2026. This check does not reserve a name or establish publishing rights. No package has been uploaded by the packaging verification workflow.
+The initial `gpui-macos` 0.1.0 release and all five fork packages are published on crates.io. The 0.1.1 patch release updates only the root library; unchanged fork packages retain their existing versions. The packaging verification workflow does not upload packages.
 
 Use **Python 3.12 or newer** and the repository's tested **Rust 1.98.1** toolchain for the packaging helpers. The Python version bundled with macOS may be too old: the scripts use `tomllib` and safe filtered archive extraction. The verifier preserves the active repository toolchain when compiling external consumers.
 
@@ -10,7 +10,7 @@ Use **Python 3.12 or newer** and the repository's tested **Rust 1.98.1** toolcha
 
 | Registry package | Version | Original package | Rust library name |
 | --- | --- | --- | --- |
-| `gpui-macos` | `0.1.0` | This library | `gpui_macos` |
+| `gpui-macos` | `0.1.1` | This library | `gpui_macos` |
 | `gpui-macos-kit` | `0.7.1-macos.1` | `gpui-kit` | `gpui_kit` |
 | `gpui-macos-base` | `0.7.1-macos.1` | `gpui-base` | `gpui_base` |
 | `gpui-macos-component` | `0.7.1-macos.1` | `gpui-component` | `gpui_component` |
@@ -59,6 +59,6 @@ Review the source changes, license notices and final archives, commit the releas
 python3 -B scripts/release-plan.py
 ```
 
-Publish the macro and assets packages first, then Base, Component, Kit, and finally `gpui-macos`. Publish one at a time and wait until crates.io indexes each exact version before publishing its dependents. The printed commands use `cargo publish --locked --registry crates-io`; the script itself does not execute them. Authentication and upload are separate release actions.
+For new fork versions, publish the macro and assets packages first, then Base, Component, Kit, and finally `gpui-macos`. Skip package versions that are already published and unchanged. Publish one at a time and wait until crates.io indexes each exact version before publishing its dependents. The printed commands use `cargo publish --locked --registry crates-io`; the script itself does not execute them. Authentication and upload are separate release actions.
 
 After the fork versions are on crates.io, a normal `cargo publish --dry-run --locked` for `gpui-macos` can verify against the public registry. Before then, a public-registry dry run cannot resolve the unpublished fork names; use the local registry check above. Cargo's [multiple locations guidance](https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html#multiple-locations) explains how path-plus-version dependencies become registry dependencies when packaged.

@@ -164,6 +164,17 @@ define_class!(
 pub(super) struct GlassUnderlay {
     host: Retained<MaterialHostView>,
     glass: Retained<NSGlassEffectView>,
+    presentation: Cell<Option<UnderlayPresentation>>,
+    visible: Cell<bool>,
+}
+
+#[derive(Clone, Copy)]
+struct UnderlayPresentation {
+    host_frame: NSRect,
+    glass_frame: NSRect,
+    radius: f64,
+    clear: bool,
+    tint: Option<Hsla>,
 }
 
 impl GlassUnderlay {
@@ -190,7 +201,18 @@ impl GlassUnderlay {
             NSWindowOrderingMode::Below,
             Some(&renderer),
         );
-        Ok(Self { host, glass })
+        Ok(Self {
+            host,
+            glass,
+            presentation: Cell::new(None),
+            visible: Cell::new(false),
+        })
+    }
+
+    fn hide(&self) {
+        if self.visible.replace(false) {
+            self.host.setHidden(true);
+        }
     }
 
     pub(super) fn update(
@@ -203,17 +225,17 @@ impl GlassUnderlay {
         window: &Window,
     ) {
         let Ok(renderer) = renderer_view(window) else {
-            self.host.setHidden(true);
+            self.hide();
             return;
         };
         let Some(parent) = parent_view(&renderer) else {
-            self.host.setHidden(true);
+            self.hide();
             return;
         };
         let w = f64::from(f32::from(visible.size.width));
         let h = f64::from(f32::from(visible.size.height));
         if w <= 0. || h <= 0. {
-            self.host.setHidden(true);
+            self.hide();
             return;
         }
         let x = f64::from(f32::from(visible.origin.x));
@@ -227,10 +249,9 @@ impl GlassUnderlay {
             NSRect::new(NSPoint::new(x, y), NSSize::new(w, h)),
             Some(&renderer),
         );
-        self.host.setFrame(frame);
         // Keep the full glass geometry within a clipping host. Scrolling does
         // not create artificial rounded corners at the viewport's cut edge.
-        self.glass.setFrame(NSRect::new(
+        let glass_frame = NSRect::new(
             NSPoint::new(
                 f64::from(f32::from(bounds.origin.x - visible.origin.x)),
                 f64::from(f32::from(bounds.origin.y - visible.origin.y)),
@@ -239,24 +260,49 @@ impl GlassUnderlay {
                 f64::from(f32::from(bounds.size.width)),
                 f64::from(f32::from(bounds.size.height)),
             ),
-        ));
-        self.glass.setCornerRadius(f64::from(f32::from(radius)));
-        self.glass.setStyle(if clear {
-            NSGlassEffectViewStyle::Clear
-        } else {
-            NSGlassEffectViewStyle::Regular
-        });
-        let color = tint.map(|tint| {
-            let rgb = tint.to_rgb();
-            NSColor::colorWithSRGBRed_green_blue_alpha(
-                f64::from(rgb.r),
-                f64::from(rgb.g),
-                f64::from(rgb.b),
-                f64::from(rgb.a),
-            )
-        });
-        self.glass.setTintColor(color.as_deref());
-        self.host.setHidden(false);
+        );
+        let radius = f64::from(f32::from(radius));
+        let previous = self.presentation.get();
+        // Reapplying material properties on every GPUI repaint causes needless
+        // AppKit layout and compositing work, even when only a control animates.
+        if previous.is_none_or(|previous| previous.host_frame != frame) {
+            self.host.setFrame(frame);
+        }
+        if previous.is_none_or(|previous| previous.glass_frame != glass_frame) {
+            self.glass.setFrame(glass_frame);
+        }
+        if previous.is_none_or(|previous| previous.radius != radius) {
+            self.glass.setCornerRadius(radius);
+        }
+        if previous.is_none_or(|previous| previous.clear != clear) {
+            self.glass.setStyle(if clear {
+                NSGlassEffectViewStyle::Clear
+            } else {
+                NSGlassEffectViewStyle::Regular
+            });
+        }
+        if previous.is_none_or(|previous| previous.tint != tint) {
+            let color = tint.map(|tint| {
+                let rgb = tint.to_rgb();
+                NSColor::colorWithSRGBRed_green_blue_alpha(
+                    f64::from(rgb.r),
+                    f64::from(rgb.g),
+                    f64::from(rgb.b),
+                    f64::from(rgb.a),
+                )
+            });
+            self.glass.setTintColor(color.as_deref());
+        }
+        self.presentation.set(Some(UnderlayPresentation {
+            host_frame: frame,
+            glass_frame,
+            radius,
+            clear,
+            tint,
+        }));
+        if !self.visible.replace(true) {
+            self.host.setHidden(false);
+        }
     }
 }
 
@@ -712,11 +758,13 @@ pub(super) struct ToolbarHost {
     background: Retained<NSColor>,
     sidebar_width: Rc<Cell<f32>>,
     sidebar_accessory: RefCell<Option<Retained<NSTitlebarAccessoryViewController>>>,
+    title: RefCell<SharedString>,
 }
 
 impl ToolbarHost {
     pub(super) fn set_enabled(&self, id: &str, enabled: bool) -> bool {
         let mut found = false;
+        let mut changed = false;
         for item in self.delegate.ivars().items.borrow_mut().iter_mut() {
             if let NativeToolbarItem::Button {
                 id: candidate,
@@ -730,9 +778,13 @@ impl ToolbarHost {
             } = item
                 && candidate.as_ref() == id
             {
+                changed |= *value != enabled;
                 *value = enabled;
                 found = true;
             }
+        }
+        if !changed {
+            return found;
         }
         for item in self.toolbar.items().iter() {
             if item.itemIdentifier().to_string() == id {
@@ -755,7 +807,10 @@ impl ToolbarHost {
     }
 
     pub(super) fn set_title(&self, title: &str) {
-        self.window.setTitle(&NSString::from_str(title));
+        if self.title.borrow().as_ref() != title {
+            self.window.setTitle(&NSString::from_str(title));
+            *self.title.borrow_mut() = title.to_owned().into();
+        }
     }
 
     pub(super) fn set_sidebar_width(&self, width: Pixels) {
@@ -890,6 +945,7 @@ pub(super) fn install_toolbar(
         delegate,
         sidebar_width: Rc::new(Cell::new(0.)),
         sidebar_accessory: RefCell::new(None),
+        title: RefCell::new(title.clone()),
     };
     host.window.setTitle(&NSString::from_str(&title));
     host.window

@@ -373,17 +373,17 @@ where
     /// The domain includes zero so non-negative data starts at the center.
     /// Shared by `paint` and `tooltip_state` so the two stay in sync.
     fn scale(&self, outer_radius: f32) -> ScaleLinear<Y> {
-        let domain = if let Some(max_value) = self.max_value {
-            vec![Y::zero(), max_value]
+        if let Some(max_value) = self.max_value {
+            ScaleLinear::new([Y::zero(), max_value], [0., outer_radius])
         } else {
-            self.data
-                .iter()
-                .flat_map(|d| self.values.iter().map(|value_fn| value_fn(d)))
-                .chain(Some(Y::zero()))
-                .collect()
-        };
-
-        ScaleLinear::new(domain, [0., outer_radius])
+            ScaleLinear::new(
+                self.data
+                    .iter()
+                    .flat_map(|d| self.values.iter().map(|value_fn| value_fn(d)))
+                    .chain(Some(Y::zero())),
+                [0., outer_radius],
+            )
+        }
     }
 
     /// Map a cursor position to the nearest spoke index, or `None` when the

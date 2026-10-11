@@ -373,7 +373,10 @@ where
         _cx: &mut App,
     ) -> Vec<AnyElement> {
         // The y labels' gutter is measured before the x scale is laid out past it.
-        if let Some((_, _, extent)) = self.scales(bounds) {
+        if self.axes.y_axis
+            && self.axes.y_axis_label_placement == AxisLabelPlacement::Outside
+            && let Some((_, _, extent)) = self.scales(bounds)
+        {
             let axis_gap = if self.x_axis { AXIS_GAP } else { 0. };
             let height = bounds.size.height.as_f32() - axis_gap;
             self.axes.measure_y_labels(extent, height, window);
@@ -431,10 +434,10 @@ where
         // Draw area
         // Unstyled series take the theme's series colors in turn, over a quiet fill.
         let chart = cx.macos().chart;
+        let x = Rc::new(x);
         let areas = self.y.iter().enumerate().map(|(i, y_fn)| {
             let x = x.clone();
             let y = y.clone();
-            let x_fn = x_fn.clone();
             let y_fn = y_fn.clone();
 
             let stroke = self
@@ -453,10 +456,10 @@ where
                 .unwrap_or(self.curves.first().unwrap_or(&Default::default()));
 
             Area::new()
-                .data(&self.data)
-                .x(move |d| x.tick(&x_fn(d)))
+                .data(self.data.iter().enumerate())
+                .x(move |(index, _)| x.tick_at(*index))
                 .y0(height)
-                .y1(move |d| y.tick(&y_fn(d)))
+                .y1(move |(_, d)| y.tick(&y_fn(d)))
                 .stroke(stroke)
                 .curve(curve)
                 .fill(fill)
@@ -500,7 +503,6 @@ where
         bounds: Bounds<Pixels>,
         _cx: &App,
     ) -> Option<TooltipState> {
-        let x_fn = self.x.as_ref()?;
         let (x, y, _) = self.scales(bounds)?;
 
         // Ignore the x-axis label gutter so hovering the labels doesn't show a tooltip.
@@ -513,7 +515,7 @@ where
 
         let index = x.nearest_index(position.x.as_f32());
         let d = self.data.get(index)?;
-        let x_tick = x.tick(&x_fn(d))?;
+        let x_tick = x.tick_at(index)?;
 
         // One dot per series at the hovered x.
         let dots = self

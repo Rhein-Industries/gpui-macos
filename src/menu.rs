@@ -121,6 +121,7 @@ pub fn menu(
     items: Vec<MenuItem>,
     on_select: impl Fn(usize, &mut Window, &mut App) + 'static,
 ) -> Popover {
+    let items = Rc::new(items);
     let on_select = Rc::new(on_select);
     Popover::new(id)
         .trigger_clickable(trigger)
@@ -304,7 +305,8 @@ pub fn menu(
                     }
                     cx.stop_propagation();
                 })
-                .children(items.clone().into_iter().enumerate().map(|(index, item)| {
+                .children(items.iter().enumerate().map(|(index, item)| {
+                    let disabled = item.disabled;
                     let hover_cursor = cursor.clone();
                     let hover_page = page.clone();
                     let hover_child = child_cursor.clone();
@@ -355,7 +357,7 @@ pub fn menu(
                                     }),
                             )
                         })
-                        .child(div().flex_1().min_w_0().child(item.label))
+                        .child(div().flex_1().min_w_0().child(item.label.clone()))
                         .when(item_has_children, |row| {
                             row.child(icon(IconName::ChevronRight).size(rems(0.875)))
                         })
@@ -366,7 +368,7 @@ pub fn menu(
                         })
                         .children(shortcut)
                         .on_hover(move |hovered, window, cx| {
-                            if *hovered && !item.disabled {
+                            if *hovered && !disabled {
                                 hover_page.update(cx, |page, cx| {
                                     *page = item_has_children.then_some(index);
                                     cx.notify();

@@ -274,11 +274,10 @@ where
         let band_width = x.band_width();
 
         // Y scale
-        let all_values: Vec<Y> = self
+        let all_values = self
             .data
             .iter()
-            .flat_map(|d| vec![high_fn(d), low_fn(d), open_fn(d), close_fn(d)])
-            .collect();
+            .flat_map(|d| [high_fn(d), low_fn(d), open_fn(d), close_fn(d)]);
         let y = ScaleLinear::new(all_values, [height, 10.]);
 
         // Draw X axis

@@ -15,12 +15,13 @@ use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 use std::{
     cell::RefCell,
     collections::HashMap,
+    hash::Hash,
     sync::{Arc, LazyLock},
 };
 
 #[derive(Clone, Hash, PartialEq, Eq)]
 struct MaskKey {
-    symbol: String,
+    symbol: Arc<str>,
     points: u16,
     pixels: u16,
     weight: u8,
@@ -37,12 +38,87 @@ struct AlphaMask {
     alpha: Vec<u8>,
 }
 
-#[derive(Default)]
 struct SymbolCache {
-    names: HashMap<IconName, Option<String>>,
-    masks: HashMap<MaskKey, Arc<AlphaMask>>,
-    images: HashMap<ImageKey, Arc<RenderImage>>,
+    names: HashMap<IconName, Option<Arc<str>>>,
+    masks: SymbolLru<MaskKey, Arc<AlphaMask>>,
+    images: SymbolLru<ImageKey, Arc<RenderImage>>,
     svg: HashMap<IconName, Option<Arc<[u8]>>>,
+}
+
+impl Default for SymbolCache {
+    fn default() -> Self {
+        Self {
+            names: HashMap::new(),
+            masks: SymbolLru::new(256, 16 * 1024 * 1024),
+            images: SymbolLru::new(512, 64 * 1024 * 1024),
+            svg: HashMap::new(),
+        }
+    }
+}
+
+struct SymbolEntry<V> {
+    value: V,
+    used_at: u64,
+    bytes: usize,
+}
+
+/// Evict cold entries individually, keeping hot symbols through color and zoom
+/// changes. Byte limits also bound large rasterizations, not just entry counts.
+struct SymbolLru<K, V> {
+    entries: HashMap<K, SymbolEntry<V>>,
+    clock: u64,
+    bytes: usize,
+    max_entries: usize,
+    max_bytes: usize,
+}
+
+impl<K: Clone + Eq + Hash, V: Clone> SymbolLru<K, V> {
+    fn new(max_entries: usize, max_bytes: usize) -> Self {
+        Self {
+            entries: HashMap::new(),
+            clock: 0,
+            bytes: 0,
+            max_entries,
+            max_bytes,
+        }
+    }
+
+    fn get(&mut self, key: &K) -> Option<V> {
+        let entry = self.entries.get_mut(key)?;
+        self.clock += 1;
+        entry.used_at = self.clock;
+        Some(entry.value.clone())
+    }
+
+    fn insert(&mut self, key: K, value: V, bytes: usize) {
+        if let Some(previous) = self.entries.remove(&key) {
+            self.bytes -= previous.bytes;
+        }
+        if self.max_entries == 0 || bytes > self.max_bytes {
+            return;
+        }
+        while self.entries.len() >= self.max_entries || self.bytes + bytes > self.max_bytes {
+            let oldest = self
+                .entries
+                .iter()
+                .min_by_key(|(_, entry)| entry.used_at)
+                .map(|(key, _)| key.clone());
+            let Some(oldest) = oldest else { break };
+            if let Some(entry) = self.entries.remove(&oldest) {
+                self.bytes -= entry.bytes;
+            }
+        }
+        self.clock += 1;
+        self.bytes += bytes;
+        self.entries.insert(
+            key,
+            SymbolEntry {
+                value,
+                used_at: self.clock,
+                bytes,
+            },
+        );
+    }
 }
 
 static PATH_NAMES: LazyLock<HashMap<gpui_kit::SharedString, IconName>> = LazyLock::new(|| {
@@ -102,7 +178,12 @@ pub(crate) fn image(
     weight: FontWeight,
     color: Hsla,
 ) -> Option<Arc<RenderImage>> {
-    if !points.is_finite() || points <= 0. || !scale.is_finite() || scale <= 0. {
+    if !points.is_finite()
+        || points <= 0.
+        || !scale.is_finite()
+        || scale <= 0.
+        || !weight.0.is_finite()
+    {
         return None;
     }
     let points = (points.clamp(1., 256.) * 64.).round() as u16;
@@ -114,7 +195,7 @@ pub(crate) fn image(
         let symbol = cache
             .names
             .entry(name)
-            .or_insert_with(|| resolve_name(name))
+            .or_insert_with(|| resolve_name(name).map(Arc::from))
             .clone()?;
         let mask_key = MaskKey {
             symbol,
@@ -127,17 +208,15 @@ pub(crate) fn image(
             color,
         };
         if let Some(image) = cache.images.get(&image_key) {
-            return Some(image.clone());
+            // A hot tinted image also keeps its reusable alpha mask hot.
+            cache.masks.get(&mask_key);
+            return Some(image);
         }
         let mask = match cache.masks.get(&mask_key) {
-            Some(mask) => mask.clone(),
+            Some(mask) => mask,
             None => {
                 let mask = Arc::new(rasterize(&mask_key)?);
-                // Keep caches bounded during long-running animated colors and zoom.
-                if cache.masks.len() >= 256 {
-                    cache.masks.clear();
-                }
-                cache.masks.insert(mask_key, mask.clone());
+                cache.masks.insert(mask_key, mask.clone(), mask.alpha.len());
                 mask
             }
         };
@@ -145,10 +224,11 @@ pub(crate) fn image(
         let buffer = RgbaImage::from_raw(mask.pixels.into(), mask.pixels.into(), bytes)?;
         // RenderImage deliberately consumes BGRA, despite image::RgbaImage's name.
         let image = Arc::new(RenderImage::new(vec![Frame::new(buffer)]));
-        if cache.images.len() >= 512 {
-            cache.images.clear();
-        }
-        cache.images.insert(image_key, image.clone());
+        cache.images.insert(
+            image_key,
+            image.clone(),
+            usize::from(mask.pixels).pow(2) * 4,
+        );
         Some(image)
     })
 }
@@ -520,6 +600,44 @@ fn translated_symbol(path: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invalid_symbol_weights_fall_back_without_indexing_the_optical_weights() {
+        for weight in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert!(image(IconName::Check, 16., 2., FontWeight(weight), Hsla::white()).is_none());
+        }
+    }
+
+    #[test]
+    fn symbol_cache_evicts_cold_entries_without_clearing_hot_artwork() {
+        let mut cache = SymbolLru::new(3, 100);
+        for key in 0..3 {
+            cache.insert(key, key, 10);
+        }
+        assert_eq!(cache.get(&0), Some(0));
+        cache.insert(3, 3, 10);
+        assert_eq!(cache.get(&1), None);
+        assert_eq!(cache.get(&0), Some(0));
+        assert_eq!(cache.get(&2), Some(2));
+        assert_eq!(cache.get(&3), Some(3));
+        assert_eq!(cache.bytes, 30);
+    }
+
+    #[test]
+    fn symbol_cache_bounds_raster_bytes_and_accounts_for_replacements() {
+        let mut cache = SymbolLru::new(10, 8);
+        cache.insert(0, "small", 2);
+        cache.insert(1, "small", 2);
+        cache.insert(0, "larger", 6);
+        assert_eq!(cache.bytes, 8);
+        cache.insert(2, "large", 6);
+        assert_eq!(cache.entries.len(), 1);
+        assert_eq!(cache.get(&2), Some("large"));
+        assert_eq!(cache.bytes, 6);
+        cache.insert(3, "oversized", 9);
+        assert_eq!(cache.entries.len(), 1);
+        assert_eq!(cache.bytes, 6);
+    }
 
     #[test]
     fn tint_preserves_antialiasing_and_inherited_alpha_in_bgra() {

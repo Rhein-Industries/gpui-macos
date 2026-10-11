@@ -1,6 +1,6 @@
 [package]
 name = "gpui-macos"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "MIT AND Apache-2.0"
 description = "A complete macOS design system for GPUI Kit: native controls, Liquid Glass surfaces, and desktop layouts."

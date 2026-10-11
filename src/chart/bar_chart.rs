@@ -659,9 +659,12 @@ where
         };
         let font_size = px(TEXT_SIZE);
         let band_gap = if self.label_axis {
+            let labeled = labeled_items(self.band_slots(), self.band_tick_count, self.tick_margin);
             self.data
                 .iter()
-                .map(|v| {
+                .enumerate()
+                .filter(|(i, _)| labeled.get(*i).copied().unwrap_or(false))
+                .map(|(_, v)| {
                     let s: SharedString = band_fn(v).into();
                     measure_text_width(&s, font_size, window)
                 })
@@ -738,7 +741,10 @@ where
         } else {
             (0., 0.)
         };
-        if self.value_axis && !self.alignment.is_horizontal() {
+        if self.value_axis
+            && self.value_axis_label_placement == AxisLabelPlacement::Outside
+            && !self.alignment.is_horizontal()
+        {
             self.value_label_gap = value_axis_gap(self.value_tick_labels(), window);
         }
         vec![]
@@ -943,7 +949,11 @@ where
 
         // Chart data range in f32 — passed to `fill_gradient` callers and used
         // by the `chart_to_bar` remap helper.
-        let chart_range = self.gradient_range();
+        let chart_range = if fill_gradient.is_some() {
+            self.gradient_range()
+        } else {
+            0.0..=0.0
+        };
 
         // The hovered bar keeps its color while the others fade behind it. The
         // highlight band springs between bars, so each bar's emphasis follows the
@@ -1264,6 +1274,93 @@ fn value_tick_positions(far: f32, baseline: f32, count: usize) -> Vec<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gpui_kit::{Context, Render, TestAppContext, div, prelude::*};
+    use std::cell::Cell;
+
+    struct CountedBars {
+        value_axis: bool,
+        reads: Rc<Cell<usize>>,
+        formats: Rc<Cell<usize>>,
+    }
+
+    impl Render for CountedBars {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let reads = self.reads.clone();
+            let formats = self.formats.clone();
+            div().w(px(640.)).h(px(320.)).child(
+                BarChart::new(0..2048)
+                    .interactive(false)
+                    .band(|index| index.to_string())
+                    .value(move |index| {
+                        reads.set(reads.get() + 1);
+                        *index as f64
+                    })
+                    .label_axis(false)
+                    .grid(false)
+                    .value_axis(self.value_axis)
+                    .value_axis_label_placement(AxisLabelPlacement::Inside)
+                    .value_tick_format(move |value| {
+                        formats.set(formats.get() + 1);
+                        value.to_string()
+                    }),
+            )
+        }
+    }
+
+    #[gpui_kit::test]
+    fn solid_bar_rendering_skips_unused_gradient_and_outside_label_scans(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        for value_axis in [false, true] {
+            let reads = Rc::new(Cell::new(0));
+            let formats = Rc::new(Cell::new(0));
+            let (_, cx) = cx.add_window_view({
+                let reads = reads.clone();
+                let formats = formats.clone();
+                move |_, _| CountedBars {
+                    value_axis,
+                    reads,
+                    formats,
+                }
+            });
+            reads.set(0);
+            formats.set(0);
+            cx.update(|window, cx| {
+                window.refresh();
+                window.draw(cx).clear(cx);
+            });
+            assert!(reads.get() >= 2048, "The complete series must be painted");
+            assert_eq!(reads.get(), 2048 * if value_axis { 3 } else { 2 });
+            assert_eq!(formats.get(), if value_axis { 5 } else { 0 });
+        }
+    }
+
+    #[gpui_kit::test]
+    fn horizontal_bar_gutters_only_measure_displayed_ticks(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let cx = cx.add_empty_window();
+        let measured = Rc::new(std::cell::RefCell::new(Vec::new()));
+        let observed = measured.clone();
+        let chart = BarChart::new([0, 1, 2])
+            .band(move |index| {
+                observed.borrow_mut().push(*index);
+                if *index == 1 {
+                    "A very wide label that is not displayed"
+                } else {
+                    "Short"
+                }
+            })
+            .value(|index| *index as f64)
+            .alignment(BarAlignment::Left)
+            .band_tick_count(2);
+        cx.update(|window, _| {
+            let (gap, _) = chart.measure_horizontal_gaps(window);
+            assert_eq!(
+                gap,
+                measure_text_width(&"Short".into(), px(TEXT_SIZE), window) + TEXT_GAP * 2.
+            );
+        });
+        assert_eq!(*measured.borrow(), [0, 2]);
+    }
 
     #[test]
     fn test_label_below_zero_line() {
