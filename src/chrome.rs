@@ -155,6 +155,128 @@ pub fn sidebar(id: impl Into<ElementId>, cx: &App) -> Stateful<Div> {
         )
 }
 
+/// The titlebar band over a detail column next to a full-height sidebar,
+/// from the sidebar's trailing edge to the window's, the native toolbar's
+/// height (`NSTitlebarBackgroundView` at (220, 0, 840, 52) in the SwiftUI
+/// view dump). As in SwiftUI's `NavigationSplitView`, it is clear until the
+/// pointer is over it, then shows the titlebar background: the sidebar's
+/// surface (the same glass and backdrop; #262626 in dark mode in the
+/// reference hover screenshot) with a hairline at its bottom edge (white
+/// @0.07 dark; black @0.05 light, estimated). Use
+/// [`TitlebarBackground::revealed`] to show it regardless of the pointer.
+/// Children (for example a GPUI title) paint above the band.
+#[derive(IntoElement)]
+pub struct TitlebarBackground {
+    id: ElementId,
+    base: Stateful<Div>,
+    revealed: bool,
+    children: Vec<gpui_kit::AnyElement>,
+}
+
+/// Start a titlebar band; see [`TitlebarBackground`].
+pub fn titlebar_background(id: impl Into<ElementId>, cx: &App) -> TitlebarBackground {
+    let id = id.into();
+    TitlebarBackground {
+        base: div()
+            .id(id.clone())
+            .relative()
+            .w_full()
+            .flex_shrink_0()
+            .font_family(cx.macos().font.clone())
+            .text_color(cx.macos().foreground),
+        id,
+        revealed: false,
+        children: Vec::new(),
+    }
+}
+
+impl TitlebarBackground {
+    /// Show the band even without the pointer over it.
+    pub fn revealed(mut self, revealed: bool) -> Self {
+        self.revealed = revealed;
+        self
+    }
+}
+
+impl Styled for TitlebarBackground {
+    fn style(&mut self) -> &mut gpui_kit::StyleRefinement {
+        self.base.style()
+    }
+}
+
+impl ParentElement for TitlebarBackground {
+    fn extend(&mut self, elements: impl IntoIterator<Item = gpui_kit::AnyElement>) {
+        self.children.extend(elements);
+    }
+}
+
+impl RenderOnce for TitlebarBackground {
+    fn render(self, window: &mut gpui_kit::Window, cx: &mut App) -> impl IntoElement {
+        let hovered = window.use_keyed_state((self.id.clone(), "titlebar-hover"), cx, |_, _| false);
+        let shown = self.revealed || *hovered.read(cx);
+        let t = cx.macos();
+        let hairline = crate::tokens::ink(t)
+            .opacity(crate::tokens::TITLEBAR_BAND_SEPARATOR[usize::from(t.is_dark())]);
+        let surface = shown.then(|| {
+            crate::native::native_glass((self.id.clone(), "titlebar-material"), cx)
+                .sidebar_material()
+                .absolute()
+                .inset_0()
+                .corner_radius(px(0.))
+        });
+        // Hover follows pointer events only: a move inside the band shows it,
+        // a move elsewhere or the pointer leaving the window hides it. GPUI's
+        // own hover recomputes from the last known pointer position on every
+        // redraw (stale after the pointer leaves through the titlebar) and
+        // drops hover on keyboard input; the band must do neither.
+        let tracker = gpui_kit::canvas(
+            |bounds, window, _| bounds.intersect(&window.content_mask().bounds),
+            move |_, band, window, _| {
+                let set = move |inside: bool, window: &mut gpui_kit::Window, cx: &mut App| {
+                    hovered.update(cx, |value, cx| {
+                        if *value != inside {
+                            *value = inside;
+                            cx.notify();
+                        }
+                    });
+                    window.refresh();
+                };
+                let on_move = set.clone();
+                window.on_mouse_event(
+                    move |event: &gpui_kit::MouseMoveEvent, phase, window, cx| {
+                        if phase == gpui_kit::DispatchPhase::Capture {
+                            on_move(band.contains(&event.position), window, cx);
+                        }
+                    },
+                );
+                window.on_mouse_event(move |_: &gpui_kit::MouseExitEvent, phase, window, cx| {
+                    if phase == gpui_kit::DispatchPhase::Capture {
+                        set(false, window, cx);
+                    }
+                });
+            },
+        )
+        .absolute()
+        .inset_0();
+        // The surface and hairline go first, so caller children paint above.
+        self.base
+            .child(tracker)
+            .children(surface)
+            .when(shown, |band| {
+                band.child(
+                    div()
+                        .absolute()
+                        .left_0()
+                        .right_0()
+                        .bottom_0()
+                        .h(crate::tokens::pt(0.5))
+                        .bg(hairline),
+                )
+            })
+            .children(self.children)
+    }
+}
+
 /// A keyboard-accessible sidebar command with native row selection (spec
 /// §6.4, C20): an opaque accent row with a white label while emphasized in a
 /// key window, a neutral overlay over the material while unemphasized, and
@@ -185,7 +307,12 @@ pub fn sidebar_item(
         emphasized: true,
     };
     let rest = States::active();
-    let symbol_size = rems(crate::native::sidebar_metrics().icon_column_width.as_f32() / 16.);
+    // The symbol sits in a 26 pt slot at the regular row size, drawn at its
+    // natural size: the label size at SF Symbols' large scale, medium weight
+    // (tokens::SIDEBAR_SYMBOL_SLOT, SIDEBAR_SYMBOL_WEIGHT).
+    let symbol_slot =
+        rems(metrics.icon_column_width.as_f32() / 24. * crate::tokens::SIDEBAR_SYMBOL_SLOT / 16.);
+    let symbol_points = rems(metrics.label_size.as_f32() / 16.);
     let (accent, on_accent) = (t.accent, t.on_accent);
     button(id, "", ButtonVariant::Secondary, cx)
         .accessibility_label(label.clone())
@@ -219,8 +346,9 @@ pub fn sidebar_item(
         // The symbol is accent, and white on the emphasized selection.
         .child_with_highlight(move |highlighted| {
             icon(name)
-                .size(symbol_size)
-                .font_weight(FontWeight::NORMAL)
+                .size(symbol_slot)
+                .natural_symbol(symbol_points, true)
+                .font_weight(crate::tokens::SIDEBAR_SYMBOL_WEIGHT)
                 .text_color(if highlighted { on_accent } else { accent })
         })
         .child_with_highlight(move |_| div().min_w_0().truncate().child(label))
@@ -707,6 +835,165 @@ mod tests {
                 );
             }
         }
+    }
+
+    struct Band {
+        revealed: bool,
+        edge: bool,
+    }
+    impl Render for Band {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .size_full()
+                .flex()
+                .flex_col()
+                // The probe comes first: the test context reports the pointer
+                // at the origin while it redraws.
+                .child(
+                    div()
+                        .debug_selector(|| "band-probe".into())
+                        .w(rems(25.))
+                        .h(rems(3.25)),
+                )
+                .child(
+                    div().w(rems(25.)).child(
+                        titlebar_background("band", cx)
+                            .revealed(self.revealed)
+                            .h(rems(3.25))
+                            .child(div().debug_selector(|| "band-child".into()).size(rems(1.))),
+                    ),
+                )
+                .child(
+                    crate::native::scroll_edge_effect("edge")
+                        .active(self.edge)
+                        .fallback_color(gpui_kit::rgb(0x123456).into())
+                        .w(rems(10.))
+                        .h(rems(3.25)),
+                )
+        }
+    }
+
+    /// The titlebar band (SwiftUI reference hover screenshot): clear at
+    /// rest, the sidebar surface and a bottom hairline while hovered or
+    /// revealed, with caller children above it. The headless scroll-edge
+    /// fallback paints only while active.
+    #[gpui_kit::test]
+    fn titlebar_band_shows_on_hover_and_scroll_edge_fallback_follows_activity(
+        cx: &mut TestAppContext,
+    ) {
+        use gpui_kit::{Modifiers, point, size};
+        cx.update(crate::init);
+        let (view, cx) = cx.add_window_view(|_, _| Band {
+            revealed: false,
+            edge: false,
+        });
+        cx.update(|window, _| window.activate_window());
+        let redraw = |cx: &mut gpui_kit::VisualTestContext| {
+            view.update(cx, |_, cx| cx.notify());
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+        };
+        let band_quads = |cx: &mut gpui_kit::VisualTestContext| {
+            cx.update(|window, cx| {
+                let scale = window.scale_factor();
+                let t = cx.macos();
+                let surface = t.sidebar_material(true);
+                let hairline = crate::tokens::ink(t)
+                    .opacity(crate::tokens::TITLEBAR_BAND_SEPARATOR[usize::from(t.is_dark())]);
+                let quads = window.painted_quads();
+                let full = size(px(400.), px(52.)).scale(scale);
+                (
+                    quads.iter().any(|quad| {
+                        quad.bounds.size == full && quad.background.as_solid() == Some(surface)
+                    }),
+                    quads.iter().any(|quad| {
+                        quad.bounds.size == size(px(400.), px(0.5)).scale(scale)
+                            && quad.bounds.origin.y == px(52. + 51.5).scale(scale)
+                            && quad.background.as_solid() == Some(hairline)
+                    }),
+                )
+            })
+        };
+        for theme in [crate::Theme::light(), crate::Theme::dark()] {
+            cx.update(|_, cx| theme.clone().apply(cx));
+            let probe = cx.debug_bounds("band-probe").unwrap().center();
+            cx.simulate_mouse_move(probe, None, Modifiers::default());
+            redraw(cx);
+            assert_eq!(band_quads(cx), (false, false), "clear at rest");
+            cx.simulate_mouse_move(point(px(100.), px(72.)), None, Modifiers::default());
+            redraw(cx);
+            assert_eq!(band_quads(cx), (true, true), "shown under the pointer");
+            assert!(cx.debug_bounds("band-child").is_some());
+            cx.simulate_mouse_move(probe, None, Modifiers::default());
+            redraw(cx);
+            assert_eq!(band_quads(cx), (false, false), "hidden again");
+            // Keyboard input does not drop the hover of a stationary pointer.
+            cx.simulate_mouse_move(point(px(100.), px(72.)), None, Modifiers::default());
+            redraw(cx);
+            cx.simulate_keystrokes("a");
+            redraw(cx);
+            assert_eq!(band_quads(cx), (true, true), "kept through key input");
+            // Leaving the window through the titlebar hides the band, and it
+            // stays hidden through later redraws until the pointer returns.
+            cx.simulate_event(gpui_kit::MouseExitEvent {
+                position: point(px(100.), px(53.)),
+                pressed_button: None,
+                modifiers: Modifiers::default(),
+            });
+            for redraw_after_exit in 0..3 {
+                redraw(cx);
+                assert_eq!(
+                    band_quads(cx),
+                    (false, false),
+                    "hidden after exit, redraw {redraw_after_exit}"
+                );
+            }
+            cx.simulate_mouse_move(point(px(100.), px(72.)), None, Modifiers::default());
+            redraw(cx);
+            assert_eq!(band_quads(cx), (true, true), "shown on re-entry");
+            cx.simulate_mouse_move(probe, None, Modifiers::default());
+            redraw(cx);
+            view.update(cx, |band, _| band.revealed = true);
+            redraw(cx);
+            assert_eq!(band_quads(cx), (true, true), "revealed");
+            view.update(cx, |band, _| band.revealed = false);
+        }
+        // The fallback fade: the surface colour over the top half, clear at
+        // the bottom edge (CSS 180 degrees runs top to bottom).
+        let fade = crate::native::scroll_edge_fallback(gpui_kit::rgb(0x123456).into());
+        assert_eq!(
+            fade,
+            gpui_kit::linear_gradient(
+                180.,
+                gpui_kit::linear_color_stop(gpui_kit::rgb(0x123456), 0.5),
+                gpui_kit::linear_color_stop(
+                    gpui_kit::Hsla::from(gpui_kit::rgb(0x123456)).opacity(0.),
+                    1.
+                ),
+            )
+        );
+        let edge_quad = |cx: &mut gpui_kit::VisualTestContext| {
+            cx.update(|window, _| {
+                let scale = window.scale_factor();
+                window
+                    .painted_quads()
+                    .iter()
+                    .filter(|quad| quad.bounds.size == size(px(160.), px(52.)).scale(scale))
+                    .map(|quad| quad.background)
+                    .collect::<Vec<_>>()
+            })
+        };
+        redraw(cx);
+        assert!(edge_quad(cx).is_empty(), "nothing scrolled under the band");
+        view.update(cx, |band, _| band.edge = true);
+        redraw(cx);
+        assert_eq!(
+            edge_quad(cx),
+            vec![fade],
+            "the fallback fade while scrolled"
+        );
+        view.update(cx, |band, _| band.edge = false);
+        redraw(cx);
+        assert!(edge_quad(cx).is_empty(), "removed when no longer scrolled");
     }
 
     struct OrderedRow;

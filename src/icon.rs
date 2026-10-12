@@ -16,6 +16,24 @@ pub use gpui_kit::assets::IconName;
 pub struct Icon {
     name: IconName,
     style: StyleRefinement,
+    /// Draw the SF Symbol at its natural size for this point size, with the
+    /// large symbol scale when set, centred in the icon box.
+    natural: Option<(gpui_kit::AbsoluteLength, bool)>,
+}
+
+impl Icon {
+    /// Draw the native symbol as AppKit lays it out beside text: configured
+    /// at `points` (zoom-scaled) and the large or medium symbol scale, at its
+    /// natural size, centred in the icon box. Without this, a symbol is
+    /// fitted to the box. The Lucide fallback is unaffected.
+    pub(crate) fn natural_symbol(
+        mut self,
+        points: impl Into<gpui_kit::AbsoluteLength>,
+        large: bool,
+    ) -> Self {
+        self.natural = Some((points.into(), large));
+        self
+    }
 }
 impl Styled for Icon {
     fn style(&mut self) -> &mut StyleRefinement {
@@ -41,12 +59,19 @@ impl RenderOnce for Icon {
                     _ => None,
                 })
                 .unwrap_or_else(|| rems(1.).to_pixels(window.rem_size()).as_f32());
-            if let Some(image) = crate::native_symbols::image(
+            let natural =
+                self.natural
+                    .map(|(points, large)| crate::native_symbols::NaturalSymbol {
+                        points: points.to_pixels(window.rem_size()).as_f32(),
+                        large,
+                    });
+            if let Some(image) = crate::native_symbols::image_in_box(
                 self.name,
                 points,
                 window.scale_factor(),
                 weight,
                 color,
+                natural,
             ) {
                 return gpui_kit::img(image)
                     .refine_style(&self.style)
@@ -68,6 +93,7 @@ pub fn icon(name: IconName) -> Icon {
     Icon {
         name,
         style: StyleRefinement::default(),
+        natural: None,
     }
     .size(rems(1.))
     .flex_shrink_0()

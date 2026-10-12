@@ -130,6 +130,10 @@ struct Gallery {
     slider_disabled: Entity<gpui_kit::base::slider::SliderState>,
     navigation_focus: FocusHandle,
     navigation_list: gpui_kit::ListState,
+    /// The titlebar band the navigation list scrolls under, from the last render.
+    navigation_band: gpui_kit::Pixels,
+    /// A navigation item whose reveal finishes after its next layout.
+    pending_reveal: Option<usize>,
     navigation_rows: Vec<(bool, &'static str)>,
     collapsed_navigation_groups: std::collections::HashSet<&'static str>,
     sidebar_hidden: bool,
@@ -176,6 +180,31 @@ struct Gallery {
     /// `--open` on the menu, popover or tooltip page (reference captures).
     /// The menu and popover clear it once they have opened.
     launch_popup: bool,
+}
+
+/// Scroll `list` so `item` is fully visible below a `band` (the titlebar
+/// the list scrolls under) at the top of its viewport, from measured item
+/// bounds, including a partly scrolled first item. A laid-out item below
+/// the viewport is revealed at its bottom. An item outside the rendered
+/// range (its neighbours' heights may be unmeasured) is first scrolled to
+/// the top; this returns false and must be called again after the next
+/// layout, which measures it and the overdraw above it.
+fn reveal_below_band(list: &gpui_kit::ListState, item: usize, band: gpui_kit::Pixels) -> bool {
+    let viewport = list.viewport_bounds();
+    let top = viewport.top() + band;
+    match list.bounds_for_item(item) {
+        Some(bounds) if bounds.top() < top => list.scroll_by(bounds.top() - top),
+        Some(bounds) if bounds.bottom() > viewport.bottom() => list.scroll_to_reveal_item(item),
+        Some(_) => {}
+        None => {
+            list.scroll_to(gpui_kit::ListOffset {
+                item_ix: item,
+                offset_in_item: px(0.),
+            });
+            return false;
+        }
+    }
+    true
 }
 
 impl Gallery {
@@ -420,8 +449,11 @@ impl Gallery {
             slider_range,
             slider_disabled,
             navigation_focus: cx.focus_handle(),
+            navigation_band: rems(3.25).to_pixels(window.rem_size()),
+            pending_reveal: None,
+            // One leading spacer row (the titlebar band) and every row.
             navigation_list: gpui_kit::ListState::new(
-                GROUPS.len() + components().count(),
+                1 + GROUPS.len() + components().count(),
                 gpui_kit::ListAlignment::Top,
                 rems(6.25).to_pixels(window.rem_size()),
             ),
@@ -506,7 +538,7 @@ impl Gallery {
                 )
             })
             .collect();
-        self.navigation_list.reset(self.navigation_rows.len());
+        self.navigation_list.reset(1 + self.navigation_rows.len());
     }
 
     fn reveal_navigation_page(&mut self) {
@@ -520,7 +552,11 @@ impl Gallery {
             .iter()
             .position(|&(header, name)| !header && name == self.page)
         {
-            self.navigation_list.scroll_to_reveal_item(index);
+            // List item 0 is the spacer under the titlebar band.
+            let item = index + 1;
+            self.pending_reveal =
+                (!reveal_below_band(&self.navigation_list, item, self.navigation_band))
+                    .then_some(item);
         }
     }
     fn save_workspace(&mut self, modal: bool, window: &mut Window, cx: &mut Context<Self>) {
@@ -3346,13 +3382,32 @@ impl Render for Gallery {
         } else {
             rems(3.25).to_pixels(window.rem_size())
         };
+        self.navigation_band = toolbar_height;
+        if let Some(item) = self.pending_reveal {
+            // Once a frame has laid the row out at the top, settle it below
+            // the band; this frame then lays out the corrected offset.
+            // Otherwise render again after this frame: a refresh requested
+            // while drawing is ignored, so notify once drawing has finished,
+            // which schedules the next frame.
+            if reveal_below_band(&self.navigation_list, item, toolbar_height) {
+                self.pending_reveal = None;
+            } else {
+                let view = cx.entity().downgrade();
+                cx.defer(move |cx| {
+                    let _ = view.update(cx, |_, cx| cx.notify());
+                });
+            }
+        }
         let navigation = sidebar("component-sidebar", cx)
             .debug_selector(|| "component-sidebar".into())
             .track_focus(&self.navigation_focus)
             .h_full()
             .flex_shrink_0()
             .overflow_hidden()
-            .pt(toolbar_height)
+            // Rows scroll under the titlebar band: the list starts at the
+            // top, with a spacer row the band's height (spec §7.1 view dump:
+            // the sidebar list is full height with a 52 pt scroll pocket).
+            .pt(px(0.))
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
                 if event.keystroke.modifiers.modified() {
                     return;
@@ -3378,6 +3433,10 @@ impl Render for Gallery {
                 gpui_kit::list(self.navigation_list.clone(), {
                     let view = cx.entity();
                     move |index, window, cx| {
+                        if index == 0 {
+                            return div().h(toolbar_height).into_any_element();
+                        }
+                        let index = index - 1;
                         view.update(cx, |this, cx| {
                             let (header, name) = this.navigation_rows[index];
                             if header {
@@ -3439,6 +3498,24 @@ impl Render for Gallery {
                     }
                 })
                 .size_full(),
+            )
+            .child(
+                // The scroll pocket: blur rows scrolled under the band.
+                native::scroll_edge_effect("component-sidebar-edge")
+                    // The native blur sits above the whole renderer, so it
+                    // is off while the inline sheet or dialog covers the band.
+                    .active({
+                        let top = self.navigation_list.logical_scroll_top();
+                        (top.item_ix > 0 || top.offset_in_item > px(0.))
+                            && !self.sheet_open
+                            && !self.modal_open
+                    })
+                    .fallback_color(t.sidebar_material(window.is_window_active()))
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .w_full()
+                    .h(toolbar_height),
             );
         let zoom = self.zoom_percent(window);
         if let Some(bar) = &self.native_toolbar {
@@ -3453,9 +3530,10 @@ impl Render for Gallery {
             bar.set_enabled("actual-size", zoom != 100);
         }
         let header = if self.native_toolbar.is_some() {
-            div()
+            // Clear until the pointer is over it, then the titlebar
+            // background, as in SwiftUI's NavigationSplitView detail column.
+            titlebar_background("detail-titlebar", cx)
                 .h(native::native_toolbar_inset(window))
-                .flex_shrink_0()
                 .into_any_element()
         } else {
             toolbar("gallery-toolbar", cx)
@@ -3973,6 +4051,126 @@ fn activity_sizes(window: &Window) -> std::rc::Rc<Vec<gpui_kit::Size<gpui_kit::P
 mod tests {
     use super::*;
     use gpui_kit::TestAppContext;
+
+    struct RevealList {
+        list: gpui_kit::ListState,
+        row: f32,
+    }
+    impl Render for RevealList {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let row = self.row;
+            div().h(px(300.)).w(px(200.)).child(
+                // Item 0 is the band-high spacer, as in the gallery sidebar.
+                gpui_kit::list(self.list.clone(), move |index, _, _| {
+                    div()
+                        .h(px(if index == 0 { 52. } else { row }))
+                        .w_full()
+                        .into_any_element()
+                })
+                .size_full(),
+            )
+        }
+    }
+
+    /// A distant row that was never laid out (the last page, from a fresh
+    /// gallery) settles fully below the titlebar band on its own: the test
+    /// only sends the key and lets the app run, without driving layouts.
+    #[gpui_kit::test]
+    fn keyboard_reveal_of_an_unmeasured_row_settles_without_further_input(cx: &mut TestAppContext) {
+        cx.update(gpui_macos::init);
+        let (view, cx) = cx.add_window_view(Gallery::new);
+        cx.update(|window, cx| view.read(cx).navigation_focus.clone().focus(window, cx));
+        cx.run_until_parked();
+        cx.simulate_keystrokes("end");
+        // Display frames only: the app schedules its own follow-up render.
+        for _ in 0..4 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.run_until_parked();
+        }
+        let (list, band, item, pending) = view.read_with(cx, |this, _| {
+            let index = this
+                .navigation_rows
+                .iter()
+                .position(|&(header, name)| !header && name == this.page)
+                .unwrap();
+            (
+                this.navigation_list.clone(),
+                this.navigation_band,
+                index + 1,
+                this.pending_reveal,
+            )
+        });
+        assert_eq!(pending, None, "the reveal settled");
+        let viewport = list.viewport_bounds();
+        let bounds = list
+            .bounds_for_item(item)
+            .expect("the last row is laid out");
+        assert!(
+            bounds.top() >= viewport.top() + band - px(0.01),
+            "{bounds:?} under the band"
+        );
+        assert!(
+            bounds.bottom() <= viewport.bottom() + px(0.01),
+            "{bounds:?} below the viewport"
+        );
+    }
+
+    /// Keyboard reveal keeps the row fully below the 52 pt titlebar band for
+    /// small (24 pt), regular (32 pt) and 200%-zoomed (64 pt) rows, from
+    /// fractional offsets, from far below and when revealing downward.
+    #[gpui_kit::test]
+    fn reveal_keeps_the_row_below_the_titlebar_band(cx: &mut TestAppContext) {
+        let band = px(52.);
+        for row in [24., 32., 64.] {
+            let (view, cx) = cx.add_window_view(|_, _| RevealList {
+                list: gpui_kit::ListState::new(60, gpui_kit::ListAlignment::Top, px(100.)),
+                row,
+            });
+            let draw = |cx: &mut gpui_kit::VisualTestContext| {
+                view.update(cx, |_, cx| cx.notify());
+                cx.update(|window, cx| window.draw(cx).clear(cx));
+            };
+            draw(cx);
+            for (start, offset, target) in [
+                (5usize, 10.5f32, 6usize),
+                (5, 20., 7),
+                (5, 0.25, 5),
+                (40, 3., 2),
+                (40, 3., 1),
+                (0, 0., 30),
+            ] {
+                let list = view.read_with(cx, |this, _| this.list.clone());
+                list.scroll_to(gpui_kit::ListOffset {
+                    item_ix: start,
+                    offset_in_item: px(offset),
+                });
+                draw(cx);
+                let mut settled = reveal_below_band(&list, target, band);
+                draw(cx);
+                for _ in 0..2 {
+                    if settled {
+                        break;
+                    }
+                    settled = reveal_below_band(&list, target, band);
+                    draw(cx);
+                }
+                assert!(settled, "{row} pt row {target} settles within two layouts");
+                let viewport = list.viewport_bounds();
+                let bounds = list
+                    .bounds_for_item(target)
+                    .unwrap_or_else(|| panic!("{row} pt row {target} is laid out"));
+                assert!(
+                    bounds.top() >= viewport.top() + band - px(0.01),
+                    "{row} pt rows from {start}+{offset}: row {target} top {:?} under the band",
+                    bounds.top() - viewport.top()
+                );
+                assert!(
+                    bounds.bottom() <= viewport.bottom() + px(0.01),
+                    "{row} pt rows from {start}+{offset}: row {target} below the viewport"
+                );
+            }
+        }
+    }
 
     #[gpui_kit::test]
     fn overview_preferences_save_and_preserve_independent_choices(cx: &mut TestAppContext) {

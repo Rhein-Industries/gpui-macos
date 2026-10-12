@@ -25,6 +25,19 @@ struct MaskKey {
     points: u16,
     pixels: u16,
     weight: u8,
+    /// A natural-size symbol: its configured point size (x64) and whether it
+    /// uses the large symbol scale. `None` fits the symbol to the box.
+    natural: Option<(u16, bool)>,
+}
+
+/// An SF Symbol drawn at its natural size for a configured point size and
+/// symbol scale, centred in the icon box, as AppKit and SwiftUI lay out
+/// symbols beside text. Every symbol keeps its own width and height, rather
+/// than being fitted to the box.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct NaturalSymbol {
+    pub(crate) points: f32,
+    pub(crate) large: bool,
 }
 
 #[derive(Clone, Hash, PartialEq, Eq)]
@@ -178,6 +191,27 @@ pub(crate) fn image(
     weight: FontWeight,
     color: Hsla,
 ) -> Option<Arc<RenderImage>> {
+    image_in_box(name, points, scale, weight, color, None)
+}
+
+/// Like [`image`] in a `points` box; a `natural` symbol keeps its own size
+/// (see [`NaturalSymbol`]) and is only scaled down if it overflows the box.
+pub(crate) fn image_in_box(
+    name: IconName,
+    points: f32,
+    scale: f32,
+    weight: FontWeight,
+    color: Hsla,
+    natural: Option<NaturalSymbol>,
+) -> Option<Arc<RenderImage>> {
+    let natural = match natural {
+        Some(symbol) if symbol.points.is_finite() && symbol.points > 0. => Some((
+            (symbol.points.clamp(1., 256.) * 64.).round() as u16,
+            symbol.large,
+        )),
+        Some(_) => return None,
+        None => None,
+    };
     if !points.is_finite()
         || points <= 0.
         || !scale.is_finite()
@@ -202,6 +236,7 @@ pub(crate) fn image(
             points,
             pixels,
             weight,
+            natural,
         };
         let image_key = ImageKey {
             mask: mask_key.clone(),
@@ -283,10 +318,15 @@ fn rasterize(key: &MaskKey) -> Option<AlphaMask> {
         )?;
         // SF symbols use the same nine optical weights as system typography.
         let weight = [-0.8, -0.6, -0.4, 0., 0.23, 0.3, 0.4, 0.56, 0.62][key.weight as usize - 1];
+        let (config_points, symbol_scale) = match key.natural {
+            Some((points, true)) => (points, NSImageSymbolScale::Large),
+            Some((points, false)) => (points, NSImageSymbolScale::Medium),
+            None => (key.points, NSImageSymbolScale::Medium),
+        };
         let config = NSImageSymbolConfiguration::configurationWithPointSize_weight_scale(
-            key.points as f64 / 64.,
+            config_points as f64 / 64.,
             weight,
-            NSImageSymbolScale::Medium,
+            symbol_scale,
         )
         .configurationByApplyingConfiguration(
             &NSImageSymbolConfiguration::configurationPreferringMonochrome(),
@@ -309,18 +349,34 @@ fn rasterize(key: &MaskKey) -> Option<AlphaMask> {
         // SAFETY: the owned bitmap above allocates pixels * pixels * 4 bytes;
         // it remains alive through drawing and the final copy of alpha values.
         unsafe { std::ptr::write_bytes(data, 0, pixels * pixels * 4) };
+        // A natural symbol draws in a point-sized context at the box's pixel
+        // density, so AppKit renders it at its true size. NSImage rounds a
+        // symbol's size to whole points; stretching that size over pixels
+        // would enlarge it (paintpalette at 13 pt large: 44 x 36 px instead
+        // of AppKit's 40 x 34 at 2x).
+        let box_points = key.points as f64 / 64.;
+        if key.natural.is_some() {
+            bitmap.setSize(NSSize::new(box_points, box_points));
+        }
         let context = NSGraphicsContext::graphicsContextWithBitmapImageRep(&bitmap)?;
         let intrinsic = symbol.size();
         if intrinsic.width <= 0. || intrinsic.height <= 0. {
             return None;
         }
-        let fit = pixels as f64 / intrinsic.width.max(intrinsic.height);
+        let (extent, fit) = match key.natural {
+            // Natural size in points, shrunk only if it would overflow the box.
+            Some(_) => (
+                box_points,
+                (box_points / intrinsic.width.max(intrinsic.height)).min(1.),
+            ),
+            None => (
+                pixels as f64,
+                pixels as f64 / intrinsic.width.max(intrinsic.height),
+            ),
+        };
         let size = NSSize::new(intrinsic.width * fit, intrinsic.height * fit);
         let rect = NSRect::new(
-            NSPoint::new(
-                (pixels as f64 - size.width) / 2.,
-                (pixels as f64 - size.height) / 2.,
-            ),
+            NSPoint::new((extent - size.width) / 2., (extent - size.height) / 2.),
             size,
         );
         NSGraphicsContext::saveGraphicsState_class();
@@ -637,6 +693,98 @@ mod tests {
         cache.insert(3, "oversized", 9);
         assert_eq!(cache.entries.len(), 1);
         assert_eq!(cache.bytes, 6);
+    }
+
+    /// Sidebar symbols (tokens::SIDEBAR_SYMBOL_*): 13 pt, large scale,
+    /// medium weight at their natural size in the 26 pt slot reproduce the
+    /// SwiftUI sidebar's ink boxes at 2x (polish-check captures: 30 x 31 and
+    /// 40 x 34 px, within 1 px), where fitting each symbol to a 24 pt box gave 37 x 37 and
+    /// 42 x 34. Each symbol keeps its own width.
+    ///
+    /// Baseline: host SF Symbols artwork on macOS 26 and 27 (captured on
+    /// macOS 27). Other releases may redraw the artwork, so there the test
+    /// only checks that natural symbols render.
+    #[test]
+    fn natural_sidebar_symbols_match_the_native_ink_boxes() {
+        let os_major = objc2_foundation::NSProcessInfo::processInfo()
+            .operatingSystemVersion()
+            .majorVersion;
+        let baseline = matches!(os_major, 26 | 27);
+        let natural = NaturalSymbol {
+            points: 13.,
+            large: true,
+        };
+        let ink_box = |name: IconName| {
+            let image = image_in_box(
+                name,
+                26.,
+                2.,
+                FontWeight::MEDIUM,
+                Hsla::white(),
+                Some(natural),
+            )
+            .unwrap();
+            let pixels = image.as_bytes(0).unwrap();
+            let side = (pixels.len() / 4).isqrt();
+            assert_eq!(side, 52, "a 26 pt box at 2x");
+            let (mut left, mut right, mut top, mut bottom) = (side, 0, side, 0);
+            for (index, pixel) in pixels.as_chunks::<4>().0.iter().enumerate() {
+                if pixel[3] > 128 {
+                    let (x, y) = (index % side, index / side);
+                    (left, right) = (left.min(x), right.max(x));
+                    (top, bottom) = (top.min(y), bottom.max(y));
+                }
+            }
+            (
+                (right + 1).saturating_sub(left),
+                (bottom + 1).saturating_sub(top),
+            )
+        };
+        for (name, native) in [
+            (IconName::Grid2x2, (30, 31)),
+            (IconName::Palette, (40, 34)),
+            (IconName::AppWindow, (39, 31)),
+        ] {
+            let (width, height) = ink_box(name);
+            assert!(width > 0 && height > 0, "{name:?} renders");
+            if baseline {
+                assert!(
+                    width.abs_diff(native.0) <= 1 && height.abs_diff(native.1) <= 1,
+                    "{name:?}: {width} x {height} px against the macOS {os_major} native {native:?}"
+                );
+            }
+        }
+        // Natural symbols are cached apart from fitted ones of the same box.
+        let fitted = image(
+            IconName::Grid2x2,
+            26.,
+            2.,
+            FontWeight::MEDIUM,
+            Hsla::white(),
+        );
+        let natural = image_in_box(
+            IconName::Grid2x2,
+            26.,
+            2.,
+            FontWeight::MEDIUM,
+            Hsla::white(),
+            Some(natural),
+        );
+        assert!(!Arc::ptr_eq(&fitted.unwrap(), &natural.unwrap()));
+        assert!(
+            image_in_box(
+                IconName::Grid2x2,
+                26.,
+                2.,
+                FontWeight::MEDIUM,
+                Hsla::white(),
+                Some(NaturalSymbol {
+                    points: f32::NAN,
+                    large: true
+                })
+            )
+            .is_none()
+        );
     }
 
     #[test]

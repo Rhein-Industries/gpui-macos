@@ -239,10 +239,12 @@ impl NativeGlass {
         self
     }
 
-    /// Back the real glass with an opaque window-background layer, as the
-    /// glass of SwiftUI's `NavigationSplitView` sidebar samples its opaque
-    /// window rather than the desktop. Without real glass (older systems,
-    /// headless, Reduce Transparency), paint [`crate::Theme::sidebar_material`]:
+    /// Back the real glass with an opaque backdrop, as the glass of SwiftUI's
+    /// `NavigationSplitView` sidebar samples its opaque window rather than
+    /// the desktop. The backdrop is a custom approximation, calibrated so
+    /// regular glass matches the native sidebar colour in an active window
+    /// (`tokens::SIDEBAR_GLASS_BACKDROP`, verified by capture).
+    /// Without real glass (older systems, headless, Reduce Transparency), paint [`crate::Theme::sidebar_material`]:
     /// the measured tint while the window is active, opaque #F0F0F0 /
     /// #282828 while it is inactive.
     pub(crate) fn sidebar_material(mut self) -> Self {
@@ -327,6 +329,131 @@ impl RenderOnce for NativeGlass {
         self.base = self.base.bg(fallback);
         self.base
     }
+}
+
+/// AppKit's soft scroll-edge effect for content that scrolls under the
+/// titlebar: the scroll pocket a SwiftUI sidebar list keeps in the top 52 pt
+/// band under the window controls (spec §7.1 view dump). The effect is
+/// full strength over the top half of the band and fades out toward the
+/// band's bottom edge, where scrolled content becomes sharp again.
+///
+/// Position it over the band (for example `.absolute().top_0().left_0()
+/// .w_full().h(native_toolbar_inset(window))`) as the last child of the
+/// scrolling region, and set [`ScrollEdgeEffect::active`] only while content
+/// is scrolled underneath. With real system materials it is an AppKit blur
+/// above the GPUI renderer that ignores pointer hit testing; elsewhere
+/// (older systems, headless, Reduce Transparency, or a host whose material
+/// layers are not recognised) it paints a fade from
+/// [`ScrollEdgeEffect::fallback_color`], the surface colour behind the band.
+///
+/// Restriction: the native blur sits above the whole GPUI renderer, so any
+/// GPUI content painted over the band — inline sheets and dialogs, toasts,
+/// tooltips, selection overlays — is blurred with it. Deactivate the effect
+/// while such an overlay is open (the gallery does so for its inline sheet
+/// and dialog). Popups that open as their own windows are unaffected.
+#[derive(IntoElement)]
+pub struct ScrollEdgeEffect {
+    id: ElementId,
+    base: Div,
+    active: bool,
+    fallback: Option<Hsla>,
+}
+
+/// Start a scroll-edge effect; see [`ScrollEdgeEffect`].
+pub fn scroll_edge_effect(id: impl Into<ElementId>) -> ScrollEdgeEffect {
+    ScrollEdgeEffect {
+        id: id.into(),
+        base: div(),
+        active: false,
+        fallback: None,
+    }
+}
+
+impl ScrollEdgeEffect {
+    /// Show the effect: content is scrolled under the band. Inactive, it
+    /// renders nothing and releases its native view.
+    pub fn active(mut self, active: bool) -> Self {
+        self.active = active;
+        self
+    }
+
+    /// The opaque surface behind the band, which the fallback fades from.
+    /// Defaults to the theme's window background.
+    pub fn fallback_color(mut self, color: Hsla) -> Self {
+        self.fallback = Some(color);
+        self
+    }
+}
+
+impl Styled for ScrollEdgeEffect {
+    fn style(&mut self) -> &mut StyleRefinement {
+        self.base.style()
+    }
+}
+
+impl RenderOnce for ScrollEdgeEffect {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        if !self.active {
+            return self.base;
+        }
+        #[cfg(target_os = "macos")]
+        if !cx.macos().reduce_transparency && glass_available(window) && !is_glass_popup(window) {
+            let state =
+                window.use_keyed_state((self.id.clone(), "scroll-edge"), cx, |window, cx| {
+                    // A rejected material layer tree is found by AppKit after this
+                    // frame; repaint then (outside drawing) to show the fallback.
+                    let handle = window.window_handle();
+                    let async_cx = cx.to_async();
+                    let on_reject = Box::new(move || {
+                        async_cx
+                            .spawn(async move |cx| {
+                                let _ = handle.update(cx, |_, window, _| window.refresh());
+                            })
+                            .detach();
+                    });
+                    macos::ScrollEdgeOverlay::new(window, on_reject).ok()
+                });
+            if let Some(overlay) = state.read(cx).as_ref()
+                && !overlay.supported()
+            {
+                // Never leave an untouched material above the fallback.
+                overlay.hide();
+            }
+            if state
+                .read(cx)
+                .as_ref()
+                .is_some_and(|overlay| overlay.supported())
+            {
+                return self.base.child(
+                    canvas(
+                        |bounds, window, _| {
+                            (bounds, bounds.intersect(&window.content_mask().bounds))
+                        },
+                        move |_, (bounds, visible), window, cx| {
+                            if let Some(overlay) = state.read(cx) {
+                                overlay.update(bounds, visible, window);
+                            }
+                        },
+                    )
+                    .absolute()
+                    .inset_0(),
+                );
+            }
+        }
+        let _ = &self.id;
+        let color = self.fallback.unwrap_or(cx.macos().background);
+        self.base.bg(scroll_edge_fallback(color))
+    }
+}
+
+/// The fallback fade: `color` over the top half of the band, then fading to
+/// clear at its bottom edge (CSS angle 180 runs top to bottom).
+pub(crate) fn scroll_edge_fallback(color: Hsla) -> gpui_kit::Background {
+    gpui_kit::linear_gradient(
+        180.,
+        gpui_kit::linear_color_stop(color, 0.5),
+        gpui_kit::linear_color_stop(color.opacity(0.), 1.),
+    )
 }
 
 fn native_corner_radius(

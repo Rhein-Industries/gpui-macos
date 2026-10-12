@@ -31,18 +31,61 @@
   220 pt sidebar; was 228), as in a SwiftUI `NavigationSplitView` (spec
   §5.3).
 - `sidebar` keeps its regular Liquid Glass (`NSGlassEffectView`, no tint,
-  radius 0) but now puts an opaque `.contentBackground` layer
-  (`NSVisualEffectView`, within-window, active) under it. A SwiftUI
-  `NavigationSplitView` sidebar is the same glass in an opaque window with
-  that layer behind everything, so its glass samples the window background.
-  Ours sat in a transparent window and sampled the desktop, so it was
-  lighter (about #FEFEFE light and #373737 dark against the native #EDEDED
-  and #262626 in the comparison captures). Known issue: a capture after
-  this change still measured the lighter values, so this layer does not
-  yet give the glass an opaque backdrop behind our transparent window;
-  matching the native sidebar background is open. Fallback paint (older systems,
-  headless, Reduce Transparency) is unchanged, and so are `native_material`
-  and `native_toolbar_group`, which still sample behind the window.
+  radius 0) on an opaque backdrop inside the same host. The previous
+  `.contentBackground` effect layer under the glass did take effect: the
+  captured #FEFEFE light and #373737 dark are exactly free regular glass
+  over the window colour, #FFFFFF / #1E1E1E on macOS 26 and 27 (spec §7.1
+  glass response), which is also the backdrop a SwiftUI `NavigationSplitView`
+  sidebar samples. The native #EDEDED / #262626 instead comes from a sidebar
+  glass configuration AppKit does not expose, so a plain window-colour layer
+  would not change anything. The backdrop is now a plain opaque view that
+  redraws per appearance: a custom approximation of the native sidebar
+  glass, calibrated through the measured glass response (#C9C9C9 light,
+  #080808 dark). Verified by capture in an active window (polish3-check):
+  the sidebar measures 236 against the native 237 in light and 38 against
+  38 in dark (light #D9D9D9 had measured 242 in polish2-check). Inactive
+  windows, Increase Contrast and other appearances are not calibrated. The local view dump now also prints the
+  glass's private configuration, so the native setting can be identified.
+  Fallback paint (older systems, headless, Reduce Transparency) is
+  unchanged, and so are `native_material` and `native_toolbar_group`, which
+  still sample behind the window.
+- `sidebar_item` symbols match the SwiftUI sidebar: the row's label size
+  (13 pt) at SF Symbols' large scale and medium weight, drawn at their
+  natural size (was each symbol fitted to a 24 pt box at regular weight, so
+  `square.grid.2x2` drew 18.5 pt wide against the native 15 pt). They sit in
+  a 26 pt slot, so the symbol centres 13 pt and the title starts 30 pt after
+  the row content (was 12 and 28; native 29 and 46 pt in the window). The
+  regular-size ink boxes are within 1 px of the native ones at 2x.
+- Added `native::scroll_edge_effect(id)`: AppKit's soft scroll-edge effect
+  (the scroll pocket a SwiftUI sidebar keeps under the titlebar). While
+  `active`, it blurs the GPUI content under its band with an in-window
+  material above the renderer, full strength over the band's top half and
+  fading out toward its bottom edge; it ignores hit testing. A partly
+  clipped band keeps its full-size fade inside a clipping host. The
+  material's tint is stripped like GPUI's own blurred backdrop, but only
+  when its layer tree has the recognised backdrop and tint layers;
+  otherwise the material is left untouched and the effect paints its
+  fallback instead. Without real system materials it paints a fade from its
+  `fallback_color`. Restriction: the native blur sits above the whole
+  renderer, so GPUI overlays painted over the band (inline sheets and
+  dialogs, toasts, tooltips) are blurred too; deactivate it while they are
+  open. The gallery sidebar list now starts at the top of the window with a
+  spacer row the toolbar's height, so rows scroll under the titlebar and
+  are blurred there; the effect is off while the gallery's inline sheet or
+  dialog is open. Keyboard navigation reveals the selected row fully below
+  the titlebar band from measured row bounds (small rows, zoom and partly
+  scrolled rows included), settling over a second layout when the row was
+  outside the rendered range.
+- Added `titlebar_background(id, cx)`: the titlebar band over a detail
+  column, as in SwiftUI's `NavigationSplitView` (`NSTitlebarBackgroundView`).
+  It is clear until the pointer is over it, then shows the sidebar's surface
+  (#262626 in the dark reference screenshot, the same as its sidebar) with a
+  hairline at its bottom edge (white @0.07 dark, measured; black @0.05 light,
+  estimated from the scroll pocket's fill). `revealed(true)` shows it
+  without the pointer. Its hover follows pointer events only: it hides when
+  the pointer leaves the window (also through the titlebar) and stays hidden
+  through redraws until the pointer returns, and keyboard input does not
+  hide it. The gallery's detail header uses it.
 
 ### Changed
 

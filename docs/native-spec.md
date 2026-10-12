@@ -281,6 +281,7 @@ Steps 2 / 4 / 12 / 20 / 24 are library defaults, not measured (**E**).
 |---|---|---|
 | Sidebar row (default) | **32** (pitch 32; 31.75 inactive) | M |
 | Sidebar small / large preference | 24 / 40; label 11 / 15; icon column 20 / 26 | M (AppKit) |
+| Sidebar symbol (SwiftUI, regular) | label size (13) at large scale, medium weight, natural size; centred 13 after the row content, title 30 after it (26 slot) | M (capture ink boxes within 1 px) |
 | Sidebar group header | 19, 11 pt, `tertiary_label`; disclosure chevron only under the pointer | M (AppKit; m5 capture) |
 | Sidebar group spacing | 13 before every group but the first | M (AppKit) |
 | List / table row | **24** (selection rect height; pitch 24.25 to 24.5) | M |
@@ -548,6 +549,25 @@ regular (no tint, radius 0, full height including behind the toolbar) in an
 opaque window whose theme frame holds a full-window `.contentBackground`
 effect (within-window, active), so the sidebar glass samples the window
 background, not the desktop (M, view hierarchy).
+The window colour is #FFFFFF / #1E1E1E there, yet the sidebar shows #EDEDED /
+#262626 (polish-check captures), while free regular glass over the same colour
+shows #FEFEFE / #373737 (our captures, matching the response above). The
+native sidebar glass therefore uses a configuration beyond the public style,
+tint and radius (O; the local view dump prints its private state). The library
+puts an opaque backdrop under regular glass instead, a custom approximation:
+#C9C9C9 light and #080808 dark, calibrated through the response above
+(#D9D9D9 measured 242, #FFFFFF 254, about 0.316 output per backdrop step) and
+verified by capture in an active window (polish3-check: 236 against the native
+237 light, 38 against 38 dark; M for active windows, O for inactive windows and
+Increase Contrast).
+
+When the pointer is over the detail column's titlebar band
+(`NSTitlebarBackgroundView`, 52 pt), SwiftUI shows the titlebar background: the
+sidebar's surface (#262626 dark in the reference hover screenshot) with a
+0.5 pt hairline at its bottom (white @0.07 dark, M; black @0.05 light, the
+scroll pocket's hard fill in the view dump, E). The sidebar list keeps a
+52 pt scroll pocket (`NSScrollPocket`, soft edge effect) under the titlebar
+that blurs rows scrolled under it.
 
 Active materials boost saturation (red-backdrop R gain 1.04 to 1.19; dark
 SwiftUI materials 1.5 to 1.7). A plain alpha blend is a known fallback deviation.

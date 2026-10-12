@@ -217,6 +217,38 @@ pub(crate) const SIDEBAR_MATERIAL: [(u32, f32); 2] = [(0xe7e7e7, 0.898), (0x2c2c
 pub(crate) const SIDEBAR_MATERIAL_INACTIVE: [u32; 2] = [0xf0f0f0, 0x282828];
 /// Reduce Transparency sidebar (active, inactive) per appearance, spec §7.6 (Sim).
 pub(crate) const SIDEBAR_MATERIAL_RT: [[u32; 2]; 2] = [[0xf6f6f6, 0xececec], [0x383838, 0x141414]];
+/// The opaque backdrop under the sidebar's regular Liquid Glass (light /
+/// dark): a custom approximation of a sidebar glass configuration with no
+/// public API, verified by capture in an active window (polish3-check list
+/// capture: sidebar 236 against the native 237 light, 38 against 38 dark) (native samples the window colour
+/// #FFFFFF / #1E1E1E and shows #EDEDED / #262626; ours over that colour
+/// measured #FEFEFE / #373737). Dark #080808 is interpolated through the
+/// measured regular-glass response (spec §7.1; `pass2.phase_a.materials`
+/// NSGlassEffectView.regular, black to #202020, gray to #7F7F7F) and matched
+/// the native (38, 38, 38) in the polish2-check list capture. Light was
+/// #D9D9D9, which measured (242, 242, 242) against the native (237, 237, 237)
+/// there; with #FFFFFF giving 254, the response is about 0.316 per step, so
+/// 237 needs about #C9C9C9.
+pub(crate) const SIDEBAR_GLASS_BACKDROP: [u32; 2] = [0xc9c9c9, 0x080808];
+/// Sidebar row symbol: the row's label size (13 pt regular) at SF Symbols'
+/// large scale and medium weight, drawn at its natural size. Matched to the
+/// SwiftUI sidebar in the polish-check captures: ink boxes 30 x 31, 40 x 34,
+/// 39 x 31 and 32 x 32 px at 2x for `square.grid.2x2`, `paintpalette`,
+/// `macwindow` and `viewfinder` (13 pt large medium renders 31 x 31,
+/// 40 x 34, 39 x 31, 32 x 32; 16 pt medium-scale regular is next best).
+pub(crate) const SIDEBAR_SYMBOL_WEIGHT: FontWeight = FontWeight::MEDIUM;
+/// The symbol slot before a sidebar row title at the regular row size: the
+/// symbol is centred 13 pt after the row content edge and the title starts
+/// 4 pt after the slot (native symbol centre 29 pt and title origin 46 pt
+/// for content at 16 pt, polish-check sidebar captures). Scaled with the
+/// AppKit icon column (24 pt) for the small and large row sizes (E).
+pub(crate) const SIDEBAR_SYMBOL_SLOT: f32 = 26.;
+/// The detail column's titlebar band while the pointer is over it: a
+/// hairline at its bottom edge, ink alpha (light / dark). Dark measured
+/// #2E2E2E over the #1E1E1E content (white @0.07) in the SwiftUI reference
+/// hover screenshot; light is the black @0.05 hard scroll-pocket fill in the
+/// SwiftUI view dump (E for the titlebar band).
+pub(crate) const TITLEBAR_BAND_SEPARATOR: [f32; 2] = [0.05, 0.07];
 /// Sidebar group header leading space before every group but the first,
 /// spec §5.2 (AppKit source list: later groups have 13 pt of leading space;
 /// docs/comparison.md, docs/native-metrics.json).

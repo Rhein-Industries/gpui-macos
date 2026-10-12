@@ -76,11 +76,13 @@ Sidebars and opt-in `native_material` surfaces host actual `NSGlassEffectView`
 underlays on macOS 26 and newer. The view follows GPUI layout and clipping,
 ignores pointer hit testing, and leaves the renderer and window delegate intact.
 Opaque content areas sit above it. `native_material` underlays sample the
-window backdrop. A sidebar's glass sits on its own opaque `.contentBackground`
-layer (within-window, active), as in SwiftUI's `NavigationSplitView`, whose
-opaque window gives its sidebar glass that backdrop rather than the desktop.
-In captures our sidebar still renders lighter than native, so this backdrop is
-not yet effective behind the transparent GPUI window (open issue). Anchored popup factories use separate GPUI windows, whose
+window backdrop. A sidebar's glass sits on its own opaque backdrop view, as in
+SwiftUI's `NavigationSplitView`, whose opaque window gives its sidebar glass
+that backdrop rather than the desktop. The earlier `.contentBackground` layer
+was effective (our glass measured exactly free regular glass over the window
+colour), but the native sidebar glass is darker than that; the backdrop is now
+a custom approximation calibrated so regular glass matches the native colour
+in an active window (verified by capture: within 1/255 light, exact dark). Anchored popup factories use separate GPUI windows, whose
 original content views are embedded in `NSGlassEffectView.contentView`.
 Their real material samples the owning GPUI canvas underneath, while the
 unchanged renderer draws interactive foreground content. Keeping the original
