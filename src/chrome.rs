@@ -227,18 +227,85 @@ pub fn sidebar_item(
 }
 
 /// A sidebar section with a subdued heading and caller-supplied row children.
+/// The heading is 19 pt with an 11 pt tertiary label, after 13 pt of leading
+/// space (spec §5.2).
 pub fn sidebar_section(title: impl Into<SharedString>, cx: &App) -> Div {
-    div().flex().flex_col().pt(rems(0.8125)).child(
+    use crate::tokens::{SIDEBAR_GROUP_HEADER_HEIGHT, SIDEBAR_GROUP_SPACING, pt};
+    div().flex().flex_col().pt(pt(SIDEBAR_GROUP_SPACING)).child(
         div()
             .flex()
             .items_center()
-            .h(rems(1.1875))
+            .h(pt(SIDEBAR_GROUP_HEADER_HEIGHT))
             .px(rems(0.375))
             .native_text_style(crate::TextStyle::Subheadline, cx.macos())
             .font_weight(FontWeight::SEMIBOLD)
-            .text_color(cx.macos().secondary)
+            .text_color(cx.macos().tertiary_label())
             .child(title.into()),
     )
+}
+
+/// A collapsible sidebar group header, as in an AppKit source list (spec
+/// §5.2): 19 pt tall with an 11 pt semibold label in the tertiary label
+/// color. The disclosure chevron appears only while the pointer is over the
+/// header or it has keyboard focus; the header stays a focusable button that
+/// reports its expanded state. Supply the click handler that toggles the
+/// group. Place [`sidebar_group_spacing`] above every group but the first.
+pub fn sidebar_section_header(
+    id: impl Into<ElementId>,
+    title: impl Into<SharedString>,
+    expanded: bool,
+    cx: &App,
+) -> Button {
+    use crate::tokens::{SIDEBAR_GROUP_HEADER_HEIGHT, pt};
+    let t = cx.macos();
+    let id = id.into();
+    let title = title.into();
+    let chevron = SharedString::from(format!("{id}-chevron"));
+    button(id, "", ButtonVariant::Secondary, cx)
+        .accessibility_label(title.clone())
+        .aria_expanded(expanded)
+        .fill_duration(Duration::ZERO)
+        .h(pt(SIDEBAR_GROUP_HEADER_HEIGHT))
+        .min_h(pt(SIDEBAR_GROUP_HEADER_HEIGHT))
+        .px(rems(0.375))
+        .py(rems(0.))
+        .w_full()
+        .justify_between()
+        .border_0()
+        .shadow_none()
+        .bg(t.foreground.opacity(0.))
+        .active(|style| style)
+        .native_text_style(crate::TextStyle::Subheadline, t)
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(t.tertiary_label())
+        .child(div().min_w_0().truncate().child(title))
+        // The chevron keeps its space while hidden, so the label never moves.
+        .child_with_reveal(move |revealed| {
+            div()
+                .flex()
+                .flex_shrink_0()
+                .items_center()
+                .size(rems(0.625))
+                .when(revealed, |slot| {
+                    slot.debug_selector(move || chevron.to_string()).child(
+                        icon(if expanded {
+                            IconName::ChevronDown
+                        } else {
+                            IconName::ChevronRight
+                        })
+                        .size(rems(0.625)),
+                    )
+                })
+        })
+}
+
+/// The leading space above a sidebar group after the first (13 pt, spec
+/// §5.2). It is a spacer rather than a margin, so virtualized lists, which
+/// measure an item's border box, keep it.
+pub fn sidebar_group_spacing() -> Div {
+    div()
+        .flex_shrink_0()
+        .h(crate::tokens::pt(crate::tokens::SIDEBAR_GROUP_SPACING))
 }
 
 /// A draggable title row that leaves room for the system window controls.
@@ -395,6 +462,105 @@ mod tests {
                 )
                 .child(sidebar("sidebar", cx).debug_selector(|| "sidebar".into()))
         }
+    }
+
+    struct SectionHarness {
+        focus: gpui_kit::FocusHandle,
+    }
+    impl Render for SectionHarness {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .w(rems(13.75))
+                .p(rems(1.))
+                .child(
+                    sidebar_section_header("section", "Explore", true, cx)
+                        .track_focus(&self.focus)
+                        .debug_selector(|| "section-header".into()),
+                )
+                .child(
+                    div().w(rems(5.)).child(
+                        sidebar_section_header(
+                            "narrow",
+                            "A very long sidebar group title that cannot fit",
+                            false,
+                            cx,
+                        )
+                        .debug_selector(|| "narrow-header".into()),
+                    ),
+                )
+        }
+    }
+
+    /// Spec §5.2: a 19 pt header; its disclosure
+    /// chevron shows only under the pointer or with keyboard focus, and the
+    /// header stays an expandable button for assistive technology.
+    #[gpui_kit::test]
+    fn sidebar_section_header_reveals_its_chevron_on_hover_or_focus(cx: &mut TestAppContext) {
+        use gpui_kit::{Modifiers, point};
+        cx.update(crate::init);
+        let (view, cx) = cx.add_window_view(|_, cx| SectionHarness {
+            focus: cx.focus_handle(),
+        });
+        cx.update(|window, _| window.activate_window());
+        let redraw = |cx: &mut gpui_kit::VisualTestContext| {
+            view.update(cx, |_, cx| cx.notify());
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+        };
+        cx.simulate_mouse_move(point(px(600.), px(600.)), None, Modifiers::default());
+        redraw(cx);
+        let header = cx.debug_bounds("section-header").unwrap();
+        assert_eq!(header.size.height, px(19.));
+        assert!(
+            cx.debug_bounds("section-chevron").is_none(),
+            "hidden at rest"
+        );
+        cx.update(|window, _| {
+            let node = gpui_kit::base::test_support::find(window, &[], &"section".into()).unwrap();
+            assert_eq!(node.expanded(), Some(true));
+        });
+        cx.simulate_mouse_move(header.center(), None, Modifiers::default());
+        redraw(cx);
+        assert!(
+            cx.debug_bounds("section-chevron").is_some(),
+            "shown on hover"
+        );
+        cx.simulate_mouse_move(point(px(600.), px(600.)), None, Modifiers::default());
+        redraw(cx);
+        assert!(cx.debug_bounds("section-chevron").is_none(), "hidden again");
+        cx.update(|window, cx| {
+            let focus = view.read(cx).focus.clone();
+            focus.focus(window, cx);
+        });
+        cx.simulate_keystrokes("a");
+        redraw(cx);
+        assert!(
+            cx.debug_bounds("section-chevron").is_some(),
+            "shown with keyboard focus"
+        );
+        // A long label in a narrow sidebar truncates on one 19 pt line; the
+        // chevron keeps its 10 pt slot inside the header in both states.
+        let mut slots = Vec::new();
+        for hovered in [false, true] {
+            let narrow = cx.debug_bounds("narrow-header").unwrap();
+            let target = if hovered {
+                narrow.center()
+            } else {
+                point(px(600.), px(600.))
+            };
+            cx.simulate_mouse_move(target, None, Modifiers::default());
+            redraw(cx);
+            let narrow = cx.debug_bounds("narrow-header").unwrap();
+            assert_eq!(narrow.size.height, px(19.), "hovered {hovered}");
+            assert_eq!(narrow.size.width, px(80.), "hovered {hovered}");
+            let chevron = cx.debug_bounds("narrow-chevron");
+            assert_eq!(chevron.is_some(), hovered);
+            if let Some(chevron) = chevron {
+                assert_eq!(chevron.size.width, px(10.));
+                assert!(chevron.right() <= narrow.right() && chevron.left() >= narrow.left());
+            }
+            slots.push(narrow);
+        }
+        assert_eq!(slots[0], slots[1], "revealing the chevron moves nothing");
     }
 
     /// Glass corners and the sidebar's ideal width (C3) follow zoom.

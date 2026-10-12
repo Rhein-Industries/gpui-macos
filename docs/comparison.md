@@ -123,8 +123,13 @@ Figma/Sketch kit has not been downloaded.
 
 The GPUI app now installs a real unified `NSToolbar`, including native
 `NSSearchField` and SF Symbol commands. AppKit supplies its toolbar grouping and
-window corners. Sidebars host `NSGlassEffectView`; explicit `native_material`
-and `native_toolbar_group` builders expose the same material to applications.
+window corners. Sidebars host regular `NSGlassEffectView` (no tint, radius 0)
+over an opaque `.contentBackground` layer. A SwiftUI `NavigationSplitView`
+sidebar is the same glass in an opaque window, so it samples the window
+background rather than the desktop. Ours still measures lighter than native
+(about #FEFEFE / #373737 against #EDEDED / #262626), so matching that backdrop
+is an open issue. Explicit `native_material` and
+`native_toolbar_group` builders expose the same glass to applications.
 The asset source also substitutes host-supplied SF artwork inside upstream Kit
 components: 103 of the 106 default icons and 419 of the 1,830 full-catalog names
 resolve on this host. Unsupported names retain their bundled fallback. The

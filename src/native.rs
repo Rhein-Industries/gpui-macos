@@ -239,10 +239,12 @@ impl NativeGlass {
         self
     }
 
-    /// Without real glass (older systems, headless, Reduce Transparency),
-    /// paint [`crate::Theme::sidebar_material`]: the measured tint while the
-    /// window is active, opaque #F0F0F0 / #282828 while it is inactive. Real
-    /// glass is left to AppKit.
+    /// Back the real glass with an opaque window-background layer, as the
+    /// glass of SwiftUI's `NavigationSplitView` sidebar samples its opaque
+    /// window rather than the desktop. Without real glass (older systems,
+    /// headless, Reduce Transparency), paint [`crate::Theme::sidebar_material`]:
+    /// the measured tint while the window is active, opaque #F0F0F0 /
+    /// #282828 while it is inactive.
     pub(crate) fn sidebar_material(mut self) -> Self {
         self.sidebar = true;
         self
@@ -281,8 +283,9 @@ impl RenderOnce for NativeGlass {
         }
         #[cfg(target_os = "macos")]
         if !cx.macos().reduce_transparency && glass_available(window) {
+            let sidebar = self.sidebar;
             let state = window.use_keyed_state((self.id, "native-glass-host"), cx, |window, _| {
-                macos::GlassUnderlay::new(window).ok()
+                macos::GlassUnderlay::new(window, sidebar).ok()
             });
             if state.read(cx).is_some() {
                 let radius = self

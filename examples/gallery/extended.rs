@@ -386,7 +386,8 @@ impl Extended {
                 .on_click(cx.listener(|this, index, _, cx| { this.extended.step = *index; cx.notify(); })).w_full())
                 .child(note(format!("Step {} of 3", self.step + 1), cx)),
             "list" => {
-                let mut rows = div().w(rems(30.)).flex().flex_col().gap(rems(0.125));
+                // The `.inset` list (spec §5.2): 24 pt pitch, 10 pt top inset; 6 rem matches the reference frame.
+                let mut rows = gpui_macos::list_rows(cx).w(rems(30.)).h(rems(6.));
                 for (index, label) in ["Project brief", "Meeting notes", "Design references"].into_iter().enumerate() {
                     // Native list selection (spec §6.4): the list never holds keyboard focus, so it is unemphasized.
                     let selected = index == self.selected_row;

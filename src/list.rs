@@ -84,6 +84,24 @@ pub fn scrollbar<H: gpui_kit::base::ScrollbarHandle + Clone>(
         })
 }
 
+/// The `.inset` list layout for [`crate::interpretation::list_item`] rows
+/// (spec §5.2, §6.4): rows follow each other at the 24 pt row pitch with no
+/// gap, 10 pt below the top and above the bottom edge, and inset 11.5 pt
+/// from each side so the 5 pt rounded selection floats inside the list.
+/// Give it the list's width; rows fill it.
+pub fn list_rows(cx: &App) -> Div {
+    use crate::tokens::{LIST_INSET_Y, LIST_SELECTION_INSET, pt};
+    let t = cx.macos();
+    div()
+        .flex()
+        .flex_col()
+        .py(pt(LIST_INSET_Y))
+        .px(pt(LIST_SELECTION_INSET))
+        .font_family(t.font.clone())
+        .native_text_style(crate::TextStyle::Body, t)
+        .text_color(t.foreground)
+}
+
 /// Grouped content, as in System Settings. Compose rows inside this surface.
 pub fn inset_list(cx: &App) -> Div {
     let t = cx.macos();
@@ -160,6 +178,94 @@ mod tests {
                     );
                 }
             });
+        }
+    }
+
+    struct InsetList;
+    impl Render for InsetList {
+        fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let (fill, text) = row_selection(false, window, cx);
+            let mut rows = list_rows(cx)
+                .w(rems(30.))
+                .debug_selector(|| "inset-list".into());
+            for index in 0..3_usize {
+                rows = rows.child(
+                    crate::interpretation::list_item(("pitch-row", index), cx)
+                        .debug_selector(move || format!("pitch-row-{index}"))
+                        .when(index == 0, |row| row.bg(fill).text_color(text))
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(rems(0.625))
+                                .child(crate::icon(crate::IconName::File))
+                                .child("Project brief"),
+                        ),
+                );
+            }
+            div().p(rems(1.)).child(rows)
+        }
+    }
+
+    /// The `.inset` list (spec §5.2, §6.4) on 1x and 2x displays at 100% and
+    /// 200% zoom: consecutive rows are 24 pt apart (the row pitch, not just
+    /// the row height), the first row starts 10 pt into the list, rows are
+    /// inset 11.5 pt from each side and the selection has a 5 pt radius.
+    #[gpui_kit::test]
+    fn inset_list_rows_keep_the_native_pitch_and_insets(cx: &mut TestAppContext) {
+        use gpui_kit::{Pixels, px};
+        cx.update(crate::init);
+        let (view, cx) = cx.add_window_view(|_, _| InsetList);
+        for scale in [1., 2.] {
+            cx.simulate_scale_factor_change(scale);
+            for zoom in [1., 2.] {
+                let at = format!("{scale}x {zoom}");
+                cx.update(|window, cx| {
+                    window.set_rem_size(px(16. * zoom));
+                    view.update(cx, |_, cx| cx.notify());
+                    window.draw(cx).clear(cx);
+                });
+                // Layout rounds to the device grid; allow one device pixel.
+                let near = |actual: Pixels, points: f32, what: &str| {
+                    assert!(
+                        (actual.as_f32() - points * zoom).abs() <= 1. / scale,
+                        "{at} {what}: {actual:?} vs {}",
+                        points * zoom
+                    );
+                };
+                let list = cx.debug_bounds("inset-list").unwrap();
+                let rows: Vec<_> = ["pitch-row-0", "pitch-row-1", "pitch-row-2"]
+                    .into_iter()
+                    .map(|selector| cx.debug_bounds(selector).unwrap())
+                    .collect();
+                near(rows[0].top() - list.top(), 10., "top inset");
+                for row in &rows {
+                    near(row.size.height, 24., "row height");
+                    near(row.left() - list.left(), 11.5, "leading inset");
+                    near(list.right() - row.right(), 11.5, "trailing inset");
+                }
+                for pair in rows.windows(2) {
+                    near(pair[1].top() - pair[0].top(), 24., "row pitch");
+                    assert_eq!(pair[0].bottom(), pair[1].top(), "{at}: rows have no gap");
+                }
+                near(list.bottom() - rows[2].bottom(), 10., "bottom inset");
+                let radius = cx.update(|window, _| {
+                    let bounds = rows[0].scale(window.scale_factor());
+                    window
+                        .painted_quads()
+                        .into_iter()
+                        .find(|quad| {
+                            quad.bounds == bounds
+                                && quad.background.as_solid().is_some_and(|fill| fill.a > 0.)
+                        })
+                        .map(|quad| quad.corner_radii.top_left.0 / window.scale_factor())
+                });
+                near(
+                    px(radius.expect("painted selection")),
+                    5.,
+                    "selection radius",
+                );
+            }
         }
     }
 

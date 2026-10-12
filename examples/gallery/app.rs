@@ -3380,50 +3380,34 @@ impl Render for Gallery {
                     move |index, window, cx| {
                         view.update(cx, |this, cx| {
                             let (header, name) = this.navigation_rows[index];
-                            let t = cx.macos().clone();
                             if header {
                                 let expanded = !this.collapsed_navigation_groups.contains(name);
-                                return button(
-                                    (gpui_kit::ElementId::from("navigation-group"), name),
-                                    "",
-                                    ButtonVariant::Secondary,
-                                    cx,
-                                )
-                                .accessibility_label(format!("{name} components"))
-                                .aria_expanded(expanded)
-                                .debug_selector(move || format!("navigation-group-{name}"))
-                                .mt(rems(if index == 0 { 0. } else { 0.8125 }))
-                                .h(rems(1.1875))
-                                .min_h(rems(1.1875))
-                                .px(rems(0.375))
-                                .py(rems(0.))
-                                .w_full()
-                                .justify_between()
-                                .border_0()
-                                .shadow_none()
-                                .bg(t.foreground.opacity(0.))
-                                .active(|style| style.bg(t.pressed_fill()))
-                                .text_size(rems(0.6875))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(t.secondary)
-                                .child(name)
-                                .child(
-                                    icon(if expanded {
-                                        IconName::ChevronDown
-                                    } else {
-                                        IconName::ChevronRight
-                                    })
-                                    .size(rems(0.625)),
-                                )
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    if !this.collapsed_navigation_groups.remove(name) {
-                                        this.collapsed_navigation_groups.insert(name);
-                                    }
-                                    this.refresh_navigation_rows();
-                                    window.focus(&this.navigation_focus, cx);
-                                    cx.notify();
-                                }))
-                                .into_any_element();
+                                // Spec §5.2: a spacer (not a margin, which the
+                                // virtualized list does not measure) gives later
+                                // groups 13 pt of leading space.
+                                return div()
+                                    .when(index != 0, |group| group.child(sidebar_group_spacing()))
+                                    .child(
+                                        sidebar_section_header(
+                                            (gpui_kit::ElementId::from("navigation-group"), name),
+                                            name,
+                                            expanded,
+                                            cx,
+                                        )
+                                        .accessibility_label(format!("{name} components"))
+                                        .debug_selector(move || format!("navigation-group-{name}"))
+                                        .on_click(
+                                            cx.listener(move |this, _, window, cx| {
+                                                if !this.collapsed_navigation_groups.remove(name) {
+                                                    this.collapsed_navigation_groups.insert(name);
+                                                }
+                                                this.refresh_navigation_rows();
+                                                window.focus(&this.navigation_focus, cx);
+                                                cx.notify();
+                                            }),
+                                        ),
+                                    )
+                                    .into_any_element();
                             }
                             div()
                                 .child(
@@ -4138,6 +4122,27 @@ mod tests {
         cx.simulate_input("jk");
         cx.update(|_, cx| assert_eq!(view.read(cx).page, "input"));
         cx.update(|_, cx| assert_eq!(view.read(cx).input.read(cx).value().as_ref(), "jk"));
+    }
+
+    /// Spec §5.2: group headers are 19 pt; the first follows the toolbar
+    /// inset directly, and every later group has 13 pt of leading space after
+    /// the previous group's last row, so rows keep the native cumulative
+    /// positions (the virtualized list ignores margins, so this is a spacer).
+    #[gpui_kit::test]
+    fn sidebar_group_headers_keep_native_spacing(cx: &mut TestAppContext) {
+        cx.update(gpui_macos::init);
+        let (_view, cx) = cx.add_window_view(Gallery::new);
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let explore = cx.debug_bounds("navigation-group-Explore").unwrap();
+        let overview = cx.debug_bounds("navigation-row-overview").unwrap();
+        let last = cx.debug_bounds("navigation-row-focus_trap").unwrap();
+        let actions = cx.debug_bounds("navigation-group-Actions").unwrap();
+        let button = cx.debug_bounds("navigation-row-button").unwrap();
+        assert_eq!(explore.size.height, px(19.));
+        assert_eq!(overview.top(), explore.bottom());
+        assert_eq!(actions.size.height, px(19.));
+        assert_eq!(actions.top() - last.bottom(), px(13.));
+        assert_eq!(button.top(), actions.bottom());
     }
 
     #[gpui_kit::test]

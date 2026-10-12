@@ -2,6 +2,48 @@
 
 ## Unreleased — M5 menus, tooltips, popovers
 
+### Polish
+
+- Added `list_rows(cx)`: the `.inset` list layout for `list_item` rows
+  (spec §5.2, §6.4). Rows follow each other at the 24 pt pitch with no gap,
+  10 pt below the top and above the bottom, inset 11.5 pt from each side.
+- `interpretation::list_item` rows have the 5 pt selection radius and a 4 pt
+  content inset (was Kit's 12 pt), and set their 4 pt vertical padding
+  explicitly. The gallery list uses `list_rows`; its row pitch is now 24 pt
+  (was 26: the gallery added a 2 pt gap between rows), its first row starts
+  10 pt into the list and its selection floats inside the list with rounded
+  corners. A test asserts the pitch between consecutive rows on 1x and 2x
+  displays at 100% and 200% zoom. `inset_list_row` (40 pt) is unchanged.
+- Added `sidebar_section_header(id, title, expanded, cx)`: a 19 pt
+  collapsible group header with an 11 pt semibold label in the tertiary
+  label color (was the secondary label in the gallery). Its disclosure
+  chevron appears only while the pointer is over the header or it has
+  keyboard focus; the header stays a focusable button that reports its
+  expanded state. Added `sidebar_group_spacing()`, the 13 pt space above
+  every group but the first. Long titles truncate on one line and the
+  chevron keeps a fixed slot, so revealing it never moves the label.
+- `sidebar_section` uses the tertiary label color (was the secondary label).
+- Gallery sidebar: later groups now have 13 pt of leading space. The header
+  used a top margin, which GPUI's virtualized list does not measure, so each
+  later group header overlapped the row above it and the rows below drifted
+  13 pt upward per group.
+- The native toolbar title starts 20 pt after the sidebar (240 pt for the
+  220 pt sidebar; was 228), as in a SwiftUI `NavigationSplitView` (spec
+  §5.3).
+- `sidebar` keeps its regular Liquid Glass (`NSGlassEffectView`, no tint,
+  radius 0) but now puts an opaque `.contentBackground` layer
+  (`NSVisualEffectView`, within-window, active) under it. A SwiftUI
+  `NavigationSplitView` sidebar is the same glass in an opaque window with
+  that layer behind everything, so its glass samples the window background.
+  Ours sat in a transparent window and sampled the desktop, so it was
+  lighter (about #FEFEFE light and #373737 dark against the native #EDEDED
+  and #262626 in the comparison captures). Known issue: a capture after
+  this change still measured the lighter values, so this layer does not
+  yet give the glass an opaque backdrop behind our transparent window;
+  matching the native sidebar background is open. Fallback paint (older systems,
+  headless, Reduce Transparency) is unchanged, and so are `native_material`
+  and `native_toolbar_group`, which still sample behind the window.
+
 ### Changed
 
 - Menus and submenus use native metrics (spec §7.3): rows are 24 pt (was

@@ -181,11 +181,15 @@ shared keyboard, input, IME, clipboard and accessibility behavior. They are
 built on GPUI Kit interaction primitives. On macOS, the gallery and comparison
 app install an actual unified AppKit toolbar and native search. AppKit supplies
 its window corners and command glass. Sidebars use genuine `NSGlassEffectView`
-underlays on macOS 26 and newer. `native_material(id, role, cx)` and
+underlays on macOS 26 and newer, backed by an opaque window-background layer
+as in a SwiftUI `NavigationSplitView`. `native_material(id, role, cx)` and
 `native_toolbar_group(id, cx)` expose the same glass for application layouts.
 
-Keep roots transparent and paint opaque backgrounds in content panes. Navigation
-underlays sample behind the window. Anchored popovers, menus, choice lists,
+Keep roots transparent and paint opaque backgrounds in content panes. The
+sidebar glass gets an opaque window-background layer underneath, as a
+SwiftUI `NavigationSplitView` sidebar does (it still renders lighter than
+native; see the changelog); other navigation underlays sample behind the
+window. Anchored popovers, menus, choice lists,
 date/color pickers and hover cards use retained content factories in separate
 GPUI popup windows inside real `NSGlassEffectView` surfaces. These can sample
 the GPUI canvas beneath them. Custom overlays can use

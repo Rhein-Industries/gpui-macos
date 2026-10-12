@@ -101,6 +101,9 @@ enum ReferenceEntry {
         if CommandLine.arguments.contains("--probe") {
             exit(Probe.main())
         }
+        if CommandLine.arguments.contains("--dump-views") {
+            ViewDump.schedule()
+        }
         #endif
         SwiftUIReferenceApp.main()
     }

@@ -82,7 +82,7 @@ gpui_macos::application()
 | `panel` — Panel | `gpui_macos::panel` | A surface for a related group of settings or information. |
 | `group_box` — Group box | `gpui_macos::kit::group_box::GroupBox` | Group preferences in a titled, rounded container. |
 | `description_list` — Description list | `gpui_macos::interpretation::description_list` / `gpui_macos::kit::description_list::DescriptionList` | Compare labels and values in a structured inspector. |
-| `list` — List | `gpui_macos::kit::list::ListItem` | Selectable rows with icons, secondary content, and keyboard navigation. |
+| `list` — List | `gpui_macos::interpretation::list_item` in `gpui_macos::list_rows` / `gpui_macos::kit::list::ListItem` | Selectable rows with icons, secondary content, and keyboard navigation. |
 | `virtual_list` — Virtual list | `gpui_macos::virtual_list` | Browse a large activity log with variable-height rows. |
 | `scrollbar` — Scrollbar | `gpui_macos::scrollbar` | Drag the scroll thumb to move through a long activity log. |
 | `scrollable` — Scrollable | `gpui_kit::StatefulInteractiveElement` scroll builders | Scroll long content in a bounded native pane. |
@@ -132,7 +132,7 @@ gpui_macos::application()
 
 Code editing, gutters, search, selections, folding, and language editing rules work in the default build. Enable `tree-sitter-languages` to bundle syntax grammars. Enable `speech` to connect the speech controls to the macOS or Windows system recognizer; capture starts when the user presses the microphone. Without that feature, the gallery shows the actual disabled speech control.
 
-The gallery uses a real AppKit toolbar and `NSGlassEffectView` sidebar underlays on macOS 26 and newer. `native_material` and `native_toolbar_group` expose system glass for application layouts; leave the GPUI renderer transparent with `native_window_options` where these surfaces should show. Menus and submenus, popovers, selection lists, date and color pickers, and hover cards use separate native glass windows with GPUI foreground content. Their glass can sample the owning window's rendered scene. `native::open_glass_panel` exposes this retained foreground route for application content. `material` and ordinary canvas surfaces use themed fills. Unsupported and headless hosts, and Reduce Transparency, use deterministic fallbacks. System Reduce Transparency and Increase Contrast preferences project into the theme.
+The gallery uses a real AppKit toolbar and `NSGlassEffectView` sidebar underlays, backed by an opaque window-background layer, on macOS 26 and newer. `native_material` and `native_toolbar_group` expose system glass for application layouts; leave the GPUI renderer transparent with `native_window_options` where these surfaces should show. Menus and submenus, popovers, selection lists, date and color pickers, and hover cards use separate native glass windows with GPUI foreground content. Their glass can sample the owning window's rendered scene. `native::open_glass_panel` exposes this retained foreground route for application content. `material` and ordinary canvas surfaces use themed fills. Unsupported and headless hosts, and Reduce Transparency, use deterministic fallbacks. System Reduce Transparency and Increase Contrast preferences project into the theme.
 
 ## Verification
 

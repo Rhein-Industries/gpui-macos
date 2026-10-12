@@ -128,6 +128,20 @@ pub(crate) const TABLE_SEPARATOR: f32 = 1.;
 const BODY_LINE: f32 = 16.;
 /// Vertical cell padding that gives a Body row its native height.
 pub(crate) const ROW_PADDING_Y: f32 = (ROW_HEIGHT - BODY_LINE) / 2.;
+/// `.inset` list content inset above the first and below the last row,
+/// spec §5.2: the probe's second row selection starts at y 34 = 10 + 24
+/// (`panels.insetList` selection_rect; its text-line pitch averages 24).
+pub(crate) const LIST_INSET_Y: f32 = 10.;
+/// `.inset` list selection inset from each side, spec §5.2 and §6.4
+/// (`panels.insetList` selection_rect leading/trailing_inset_pt 11.5).
+pub(crate) const LIST_SELECTION_INSET: f32 = 11.5;
+/// `.inset` list selection corner radius, spec §5.2 and §4.1 (measured
+/// 5.26 to 5.36, `panels.insetList` selection_rect corner_radius_pt).
+pub(crate) const LIST_SELECTION_RADIUS: f32 = 5.;
+/// Row content inset inside the selection, so an `.inset` list icon starts
+/// 17.5 pt into the list (SwiftUI list page, m5 capture: icon ink at 261.5
+/// for a list at 244, 2 pt of it the symbol's side bearing). Estimate (E).
+pub(crate) const LIST_ROW_PADDING_X: f32 = 4.;
 /// Grouped card-list row (`inset_list_row`): a deliberate specialization,
 /// not the measured 24 pt list row (plan D12).
 pub(crate) const INSET_LIST_ROW_HEIGHT: f32 = 40.;
@@ -203,6 +217,16 @@ pub(crate) const SIDEBAR_MATERIAL: [(u32, f32); 2] = [(0xe7e7e7, 0.898), (0x2c2c
 pub(crate) const SIDEBAR_MATERIAL_INACTIVE: [u32; 2] = [0xf0f0f0, 0x282828];
 /// Reduce Transparency sidebar (active, inactive) per appearance, spec §7.6 (Sim).
 pub(crate) const SIDEBAR_MATERIAL_RT: [[u32; 2]; 2] = [[0xf6f6f6, 0xececec], [0x383838, 0x141414]];
+/// Sidebar group header leading space before every group but the first,
+/// spec §5.2 (AppKit source list: later groups have 13 pt of leading space;
+/// docs/comparison.md, docs/native-metrics.json).
+pub(crate) const SIDEBAR_GROUP_SPACING: f32 = 13.;
+/// Sidebar group header height (19, 11 pt label), spec §5.2.
+pub(crate) const SIDEBAR_GROUP_HEADER_HEIGHT: f32 = 19.;
+/// Unified toolbar title origin after the sidebar's trailing edge, spec §5.3:
+/// a SwiftUI `NavigationSplitView` with a 220 pt sidebar draws its detail
+/// title at 240 (glyph ink at 240.5 to 241 in the m5 comparison captures).
+pub(crate) const TOOLBAR_TITLE_SIDEBAR_GAP: f32 = 20.;
 /// Toolbar item hover disc ink alpha (light / dark), spec §6.5 (C17, C28).
 pub(crate) const TOOLBAR_HOVER: [f32; 2] = [0.05, 0.04];
 
@@ -445,6 +469,15 @@ mod tests {
         assert_eq!(TABLE_HEADER_HEIGHT, 27.);
         assert_eq!(TABLE_SEPARATOR, 1.);
         assert_eq!((INSET_LIST_ROW_HEIGHT, SIDEBAR_IDEAL_WIDTH), (40., 220.));
+        // §5.2 `.inset` list: the second row's selection starts at 10 + 24.
+        assert_eq!(LIST_INSET_Y + ROW_HEIGHT, 34.);
+        assert_eq!((LIST_SELECTION_INSET, LIST_SELECTION_RADIUS), (11.5, 5.));
+        // §5.2 sidebar groups and §5.3 title placement.
+        assert_eq!(
+            (SIDEBAR_GROUP_SPACING, SIDEBAR_GROUP_HEADER_HEIGHT),
+            (13., 19.)
+        );
+        assert_eq!(SIDEBAR_IDEAL_WIDTH + TOOLBAR_TITLE_SIDEBAR_GAP, 240.);
     }
     #[test]
     fn menu_popover_and_tooltip_tokens_match_spec_7_3_to_7_5() {

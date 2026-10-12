@@ -855,7 +855,7 @@ pub const INTERPRETATIONS: &[ComponentInterpretation] = &[
         rendering: RenderingKind::GpuiReplica,
         counterpart: "NSTableView single-column list",
         design: "Flat selectable rows with SF file symbols",
-        api: "gpui_macos::interpretation::list_item / gpui_macos::kit::list::ListItem",
+        api: "gpui_macos::interpretation::list_item / gpui_macos::list_rows / gpui_macos::kit::list::ListItem",
         capabilities: &["Selection", "pointer callbacks", "custom row content"],
         native_integrations: &[],
         optional_features: &[],
@@ -2081,16 +2081,22 @@ pub fn bubble_content(
         .text_color(if outgoing { t.on_accent } else { t.foreground })
 }
 
-/// A selectable list row with Kit's full `ListItem` API. Kit sizes its rows
-/// with GPUI's 16 pt `text_base`; this row uses Body text, so with Kit's 4 pt
-/// vertical padding it is the native 24 pt list row (spec §3.1, §5.2, C16).
-/// For native selection (spec §6.4), paint the selected row with
-/// [`crate::row_selection`] and mark it with `aria_selected` instead of Kit's
-/// `selected`, which paints over the caller with Kit's list color. Rows have
-/// no hover.
+/// A selectable list row with Kit's full `ListItem` API: the native 24 pt
+/// list row (spec §3.1, §5.2, C16), 16 pt Body lines with 4 pt above and
+/// below. Its selection has the measured 5 pt radius (spec §6.4), and its
+/// content starts 4 pt inside it. Stack rows in [`crate::list_rows`], which
+/// supplies the `.inset` list's 10 pt top inset and 11.5 pt side insets and
+/// keeps the 24 pt pitch (no gap between rows). For native selection,
+/// paint the selected row with [`crate::row_selection`] and mark it with
+/// `aria_selected` instead of Kit's `selected`, which paints over the caller
+/// with Kit's list color. Rows have no hover.
 pub fn list_item(id: impl Into<ElementId>, cx: &App) -> kit::list::ListItem {
+    use crate::tokens::{LIST_ROW_PADDING_X, LIST_SELECTION_RADIUS, ROW_HEIGHT, ROW_PADDING_Y, pt};
     kit::list::ListItem::new(id)
-        .min_h(crate::tokens::pt(crate::tokens::ROW_HEIGHT))
+        .min_h(pt(ROW_HEIGHT))
+        .py(pt(ROW_PADDING_Y))
+        .px(pt(LIST_ROW_PADDING_X))
+        .rounded(pt(LIST_SELECTION_RADIUS))
         .font_family(cx.macos().font.clone())
         .native_text_style(crate::TextStyle::Body, cx.macos())
 }

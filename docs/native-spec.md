@@ -281,11 +281,13 @@ Steps 2 / 4 / 12 / 20 / 24 are library defaults, not measured (**E**).
 |---|---|---|
 | Sidebar row (default) | **32** (pitch 32; 31.75 inactive) | M |
 | Sidebar small / large preference | 24 / 40; label 11 / 15; icon column 20 / 26 | M (AppKit) |
-| Sidebar group header | 19, 11 pt | M (AppKit) |
+| Sidebar group header | 19, 11 pt, `tertiary_label`; disclosure chevron only under the pointer | M (AppKit; m5 capture) |
+| Sidebar group spacing | 13 before every group but the first | M (AppKit) |
 | List / table row | **24** (selection rect height; pitch 24.25 to 24.5) | M |
 | Table header | 27, then a 1.5 pt separator | M |
 | Selection inset | 11.5 each side | M (0.5) |
-| Selection radius | about 5 | E |
+| Selection radius | about 5 (5.26 to 5.36 measured on the `.inset` list) | M (radius fit) |
+| `.inset` list content inset | 10 above the first row (second row's selection at y 34 = 10 + 24) and below the last | M (top); bottom E |
 
 Descriptive only (not row tokens): median text-line pitch of Form panels
 (mixed content, not row frames). Form row tokens need frame measurements (**O**).
@@ -305,6 +307,7 @@ Descriptive only (not row tokens): median text-line pitch of Form panels
 | Toolbar items (unified) | glass capsule 36 tall at y 8 (r = h / 2). Icon: 36 x 36 circle. Text item: 52 x 36. Group of three icons: one 109 x 36 capsule |
 | Toolbar items (compact / expanded) | 24 tall at y 8 / 28 tall at y 32 |
 | Sidebar toggle | inside the sidebar, 36 x 36 at x 176 |
+| Detail title (split view) | origin 20 after the sidebar's trailing edge (240 for a 220 sidebar; glyph ink at 240.5 to 241) |
 | Window corners | continuous 16 |
 | Split divider | 1 |
 | Sidebar default width | 144 (SwiftUI default, probably content-driven; not a design value; C3) |
@@ -539,6 +542,12 @@ keeps its own token.**
 | Liquid Glass regular (`NSGlassEffectView`, `.glassEffect`) | #FCFCFC @0.527 | #404040 @0.50, **non-linear** | 35 / 28 |
 | Liquid Glass clear | #FFFFFF @0.126 | same | 3.7 |
 | Liquid Glass regular, accent tint | #006AEA @0.908 | #007DFF @0.984 | |
+
+A SwiftUI `NavigationSplitView` sidebar (macOS 27 view dump) is Liquid Glass
+regular (no tint, radius 0, full height including behind the toolbar) in an
+opaque window whose theme frame holds a full-window `.contentBackground`
+effect (within-window, active), so the sidebar glass samples the window
+background, not the desktop (M, view hierarchy).
 
 Active materials boost saturation (red-backdrop R gain 1.04 to 1.19; dark
 SwiftUI materials 1.5 to 1.7). A plain alpha blend is a known fallback deviation.

@@ -10,7 +10,8 @@ use objc2_app_kit::{
     NSLayoutAttribute, NSOutlineView, NSPanel, NSSearchField, NSSearchFieldDelegate,
     NSTableViewRowSizeStyle, NSTableViewStyle, NSTextFieldDelegate,
     NSTitlebarAccessoryViewController, NSToolbar, NSToolbarDelegate, NSToolbarDisplayMode,
-    NSToolbarItem, NSUserInterfaceItemIdentification, NSView, NSWindow,
+    NSToolbarItem, NSUserInterfaceItemIdentification, NSView, NSVisualEffectBlendingMode,
+    NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView, NSWindow,
     NSWindowDidExitFullScreenNotification, NSWindowOrderingMode, NSWindowStyleMask,
     NSWindowTitleVisibility, NSWindowToolbarStyle,
 };
@@ -156,6 +157,8 @@ define_class!(
 pub(super) struct GlassUnderlay {
     host: Retained<MaterialHostView>,
     glass: Retained<NSGlassEffectView>,
+    /// The sidebar's opaque in-window backdrop, under the glass. See `new`.
+    backdrop: Option<Retained<NSVisualEffectView>>,
     presentation: Cell<Option<UnderlayPresentation>>,
     visible: Cell<bool>,
 }
@@ -170,7 +173,8 @@ struct UnderlayPresentation {
 }
 
 impl GlassUnderlay {
-    pub(super) fn new(window: &Window) -> anyhow::Result<Self> {
+    /// `sidebar` puts an opaque window-background layer under the glass.
+    pub(super) fn new(window: &Window, sidebar: bool) -> anyhow::Result<Self> {
         let mtm = main_thread()?;
         if !glass_available(window) {
             bail!("NSGlassEffectView requires macOS 26 or newer");
@@ -183,6 +187,20 @@ impl GlassUnderlay {
             unsafe { msg_send![MaterialHostView::alloc(mtm), initWithFrame: NSRect::ZERO] };
         host.setClipsToBounds(true);
         host.setHidden(true);
+        // A SwiftUI `NavigationSplitView` sidebar is regular Liquid Glass
+        // (no tint, radius 0) in an opaque window whose theme frame holds a
+        // full-window `.contentBackground` effect (within-window, active).
+        // The glass samples that opaque background, not the desktop. GPUI's
+        // window is transparent, so the sidebar gets the same backdrop under
+        // its own glass (spec §7.1; SwiftUI reference view dump).
+        let backdrop = sidebar.then(|| {
+            let backdrop = NSVisualEffectView::new(mtm);
+            backdrop.setMaterial(NSVisualEffectMaterial::ContentBackground);
+            backdrop.setBlendingMode(NSVisualEffectBlendingMode::WithinWindow);
+            backdrop.setState(NSVisualEffectState::Active);
+            host.addSubview(&backdrop);
+            backdrop
+        });
         let glass = NSGlassEffectView::new(mtm);
         // Apple's documented contentView relationship is used; we never place
         // the GPUI renderer inside arbitrary NSGlassEffectView subviews.
@@ -196,6 +214,7 @@ impl GlassUnderlay {
         Ok(Self {
             host,
             glass,
+            backdrop,
             presentation: Cell::new(None),
             visible: Cell::new(false),
         })
@@ -262,6 +281,9 @@ impl GlassUnderlay {
         }
         if previous.is_none_or(|previous| previous.glass_frame != glass_frame) {
             self.glass.setFrame(glass_frame);
+            if let Some(backdrop) = &self.backdrop {
+                backdrop.setFrame(glass_frame);
+            }
         }
         if previous.is_none_or(|previous| previous.radius != radius) {
             self.glass.setCornerRadius(radius);
@@ -831,12 +853,10 @@ impl ToolbarHost {
             self.window.addTitlebarAccessoryViewController(&accessory);
             accessory
         });
-        // AppKit's unified title begins at 108 pt. A 120 pt left accessory
-        // moves it to 228 pt, matching a 220 pt NSSplitViewController sidebar.
         // This accessory reserves horizontal space without adding a title row.
         accessory.view().setFrame(NSRect::new(
             NSPoint::ZERO,
-            NSSize::new(f64::from((width - 100.).max(0.)), 28.),
+            NSSize::new(f64::from(title_accessory_width(width)), 28.),
         ));
     }
 
@@ -852,6 +872,15 @@ impl ToolbarHost {
                 .removeTitlebarAccessoryViewControllerAtIndex(index as isize);
         }
     }
+}
+
+/// AppKit's unified title begins at 108 pt without an accessory. SwiftUI's
+/// `NavigationSplitView` draws its detail title 20 pt after the sidebar
+/// (spec §5.3), so a 220 pt sidebar needs a 132 pt left accessory to put the
+/// title at 240 pt.
+fn title_accessory_width(sidebar_width: f32) -> f32 {
+    const UNIFIED_TITLE_ORIGIN: f32 = 108.;
+    (sidebar_width + crate::tokens::TOOLBAR_TITLE_SIDEBAR_GAP - UNIFIED_TITLE_ORIGIN).max(0.)
 }
 
 impl Drop for ToolbarHost {
@@ -1003,4 +1032,23 @@ pub(super) fn toolbar_inset(window: &Window) -> Pixels {
             - layout.size.height
     };
     px(inset.max(0.) as f32)
+}
+
+#[cfg(test)]
+mod tests {
+    /// Spec §5.3 arithmetic only: the accessory width that puts the title
+    /// origin 20 pt after the sidebar, given AppKit's assumed 108 pt unified
+    /// title origin. Narrow sidebars clamp at zero (no negative accessory).
+    /// Native placement and accessory removal need an on-screen check.
+    #[test]
+    fn title_accessory_width_offsets_the_title_and_clamps() {
+        use super::title_accessory_width as width;
+        for sidebar in [88., 144., 220., 275., 440.] {
+            assert_eq!(108. + width(sidebar), sidebar + 20., "{sidebar}");
+        }
+        assert_eq!(width(220.), 132.);
+        for sidebar in [0., 40., 87.5, 88.] {
+            assert_eq!(width(sidebar), 0., "{sidebar}");
+        }
+    }
 }

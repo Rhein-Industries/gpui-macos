@@ -16,6 +16,9 @@ enum ButtonChild {
     Ready(AnyElement),
     /// Built with whether the row shows its emphasized selection.
     Highlight(Box<dyn FnOnce(bool) -> AnyElement>),
+    /// Built with whether the pointer is over the button or it shows
+    /// keyboard focus.
+    Reveal(Box<dyn FnOnce(bool) -> AnyElement>),
 }
 
 /// A macOS button backed by gpui-base's activation and focus behavior.
@@ -176,6 +179,21 @@ impl Button {
         self.children
             .push(ButtonChild::Highlight(Box::new(move |highlighted| {
                 build(highlighted).into_any_element()
+            })));
+        self
+    }
+
+    /// Adds a child built at render with whether it should be revealed: the
+    /// pointer is over the enabled button in an active window, or the button
+    /// shows keyboard focus (spec §6.3). Children keep the order they were
+    /// added in.
+    pub(crate) fn child_with_reveal<E: IntoElement>(
+        mut self,
+        build: impl FnOnce(bool) -> E + 'static,
+    ) -> Self {
+        self.children
+            .push(ButtonChild::Reveal(Box::new(move |revealed| {
+                build(revealed).into_any_element()
             })));
         self
     }
@@ -436,6 +454,8 @@ impl RenderOnce for Button {
             && role.has_focus_ring()
             && crate::state::focus_visible(&focus, window))
         .then(|| focus_ring_for(self.base.style(), window, cx.macos()));
+        let revealed = !self.disabled
+            && (pointer.read(cx).hovered || crate::state::focus_visible(&focus, window));
         let mut base = self.base;
         if self.focus.is_none() {
             base = base.track_focus(&focus);
@@ -443,6 +463,7 @@ impl RenderOnce for Button {
         base = base.children(self.children.into_iter().map(|child| match child {
             ButtonChild::Ready(element) => element,
             ButtonChild::Highlight(build) => build(highlighted),
+            ButtonChild::Reveal(build) => build(revealed),
         }));
         // Spec §6.3: the outset ring around the whole control, keyboard focus
         // in an active window only. The fill and border stay unchanged.
