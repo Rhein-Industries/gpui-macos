@@ -3,6 +3,7 @@
 //! A counterpart describes the design being followed, not a claim that a
 //! GPUI element is an AppKit control instance. System-backed entries identify
 //! their actual native integrations and retain deterministic canvas fallbacks.
+use crate::NativeTextStyle as _;
 
 /// How a component obtains its macOS presentation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -1781,7 +1782,7 @@ pub fn interpretation(id: &str) -> Option<&'static ComponentInterpretation> {
 use crate::{ActiveTheme as _, kit};
 use gpui_kit::{
     App, ElementId, Entity, InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
-    StyleRefinement, Styled as _, div, relative, rems,
+    StyleRefinement, Styled as _, div, rems,
 };
 use kit::Sizable as _;
 
@@ -1793,7 +1794,7 @@ pub fn questionnaire(
     kit::questionnaire::Questionnaire::new(state)
         .with_size(kit::Size::Small)
         .font_family(cx.macos().font.clone())
-        .text_size(rems(0.8125))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
         .gap(rems(0.875))
 }
 
@@ -1801,9 +1802,9 @@ pub fn questionnaire(
 pub fn form(window: &gpui_kit::Window, cx: &App) -> kit::form::Form {
     kit::form::Form::horizontal()
         .label_width(rems(8.5).to_pixels(window.rem_size()))
-        .label_text_size(rems(0.8125))
+        .label_text_size(rems(crate::TextStyle::Body.token().size / 16.))
         .font_family(cx.macos().font.clone())
-        .text_size(rems(0.8125))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
         .bg(cx.macos().normal_fill())
         .rounded(rems(0.625))
         .p(rems(1.))
@@ -1854,7 +1855,7 @@ pub fn questionnaire_choice(
         .bg(cx.macos().background.opacity(0.))
         .content_style(
             StyleRefinement::default()
-                .text_size(rems(0.8125))
+                .native_text_style(crate::TextStyle::Body, cx.macos())
                 .gap(rems(0.)),
         )
         .children(content.map(|(label, description)| {
@@ -1863,13 +1864,13 @@ pub fn questionnaire_choice(
                 .flex_col()
                 .child(
                     div()
-                        .text_size(rems(0.8125))
+                        .native_text_style(crate::TextStyle::Body, cx.macos())
                         .line_height(rems(1.5))
                         .child(label),
                 )
                 .children(description.map(|description| {
                     div()
-                        .text_size(rems(0.6875))
+                        .native_text_style(crate::TextStyle::Subheadline, cx.macos())
                         .line_height(rems(1.))
                         .text_color(cx.macos().secondary)
                         .child(description)
@@ -2055,8 +2056,7 @@ pub fn bubble_content(
         .border_0()
         .px(rems(0.75))
         .py(rems(0.5))
-        .text_size(rems(0.8125))
-        .line_height(relative(1.4))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
         .bg(if outgoing { t.accent } else { t.normal_fill() })
         .text_color(if outgoing { t.on_accent } else { t.foreground })
 }
@@ -2069,7 +2069,7 @@ pub fn attachment(cx: &App) -> kit::attachment::Attachment {
         .rounded(rems(0.5))
         .border_0()
         .bg(cx.macos().normal_fill())
-        .text_size(rems(0.8125))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
 }
 
 /// A bounded document-preview navigator, retaining Kit's full carousel API.
@@ -2080,7 +2080,7 @@ pub fn carousel(
 ) -> kit::carousel::Carousel {
     kit::carousel::Carousel::new(id, state)
         .font_family(cx.macos().font.clone())
-        .text_size(rems(0.8125))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
 }
 
 /// An inline previous-document command for the macOS carousel interpretation.

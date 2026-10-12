@@ -1,4 +1,5 @@
 //! Calendar presentation over gpui-base's date and view state.
+use crate::NativeTextStyle as _;
 use crate::{ActiveTheme, IconName, icon};
 use gpui_kit::base::{Calendar, CalendarItemKind, CalendarState};
 use gpui_kit::rems;
@@ -18,8 +19,7 @@ pub fn calendar(id: impl Into<ElementId>, state: &Entity<CalendarState>, cx: &Ap
         .shadow(t.popover_shadow())
         .bg(t.surface)
         .font_family(t.font.clone())
-        .text_size(rems(0.8125))
-        .line_height(gpui_kit::relative(1.2))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
         .text_color(t.foreground)
         .label(|kind, value| match kind {
             CalendarItemKind::Weekday => {

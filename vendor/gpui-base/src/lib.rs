@@ -1,4 +1,4 @@
-// Modified by gpui-macos contributors in 2026: exports for repeatable popup factories and native popup presentation.
+// Modified by gpui-macos contributors in 2026: exports for repeatable popup factories, native popup presentation, and control state children.
 // Original: longbridge/gpui-kit 0bbd9870ce420af9feacbf948b21d3824d82dc0b.
 // Copyright 2024-2026 Longbridge; Apache-2.0. See LICENSE-APACHE and MACOS-PATCH.md.
 
@@ -69,6 +69,8 @@ mod select;
 mod selectable_text;
 mod sheet;
 pub mod slider;
+mod state_child;
+pub use state_child::ControlState;
 mod state_style;
 mod styled;
 mod switch;

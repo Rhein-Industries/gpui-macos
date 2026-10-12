@@ -1,4 +1,5 @@
 //! Button presentation that suppresses transient styles while disabled.
+use crate::ActiveTheme as _;
 use gpui_kit::base::motion::transition;
 use gpui_kit::base::{ButtonStyles, RoleOverride};
 use gpui_kit::{
@@ -23,6 +24,7 @@ pub struct Button {
     selected: bool,
     selected_fill: Option<Hsla>,
     inactive_style: Option<(Hsla, Hsla)>,
+    disabled_style: Option<(Hsla, Hsla)>,
     fill_duration: Duration,
     focus: Option<FocusHandle>,
     on_hover: Option<HoverListener>,
@@ -48,6 +50,7 @@ impl Button {
             selected: false,
             selected_fill: None,
             inactive_style: None,
+            disabled_style: None,
             fill_duration: crate::motion::CONTROL_COLOR,
             focus: None,
             on_hover: None,
@@ -74,6 +77,14 @@ impl Button {
     /// disabled. This does not change its activation or disabled semantics.
     pub(crate) fn inactive_style(mut self, fill: Hsla, foreground: Hsla) -> Self {
         self.inactive_style = Some((fill, foreground));
+        self
+    }
+
+    /// A tinted bezel keeps a faded tint while disabled in an active window,
+    /// replacing the generic disabled opacity. Together with `inactive_style`,
+    /// an inactive disabled bezel uses native Bezel disabled paint (spec §6.2.3).
+    pub(crate) fn disabled_style(mut self, fill: Hsla, foreground: Hsla) -> Self {
+        self.disabled_style = Some((fill, foreground));
         self
     }
 
@@ -196,7 +207,27 @@ fn solid(style: &StyleRefinement) -> Option<Hsla> {
 impl RenderOnce for Button {
     fn render(mut self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let window_active = window.is_window_active();
-        if (!window_active || self.disabled)
+        if self.disabled
+            && !window_active
+            && self.disabled_style.is_some()
+            && self.inactive_style.is_some()
+        {
+            let (fill, foreground) = crate::tokens::disabled_bezel(cx.macos());
+            self.base = self
+                .base
+                .bg(fill)
+                .text_color(foreground)
+                .styles(|s| s.disabled(|s| s.opacity(1.)));
+        } else if self.disabled
+            && window_active
+            && let Some((fill, foreground)) = self.disabled_style
+        {
+            self.base = self
+                .base
+                .bg(fill)
+                .text_color(foreground)
+                .styles(|s| s.disabled(|s| s.opacity(1.)));
+        } else if (!window_active || self.disabled)
             && let Some((fill, foreground)) = self.inactive_style
         {
             self.base = self.base.bg(fill).text_color(foreground);

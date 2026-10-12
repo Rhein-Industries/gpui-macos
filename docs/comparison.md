@@ -26,6 +26,28 @@ is a smaller horizontal pill. Text fields have a white/dark content well;
 buttons and segments use a neutral gray bezel. Preference groups are quiet
 gray regions on plain content. Labels use the system font at 13 points.
 
+Text uses the native line height. The 13 point system font measures 16
+point lines in both `NSTextField` and `NSLayoutManager` (ascender 12.57,
+descender 2.74, no leading) on macOS 27; GPUI's default was 1.618 × size,
+or 21 points. Window roots now inherit `16/13` × font size, so it scales
+with zoom, and the base type tokens use the measured label heights (10→13,
+11→14, 13→16, 15→19, 20→24 points). The button page's rows now land within
+a point of the SwiftUI reference; previously they drifted down by up to 17 points.
+
+Disabled colors come from AppKit controls rendered offscreen with
+`cacheDisplay` (active state) in light and dark. Tinted push buttons
+(`bezelColor`, SwiftUI `.borderedProminent`) keep their accent or red bezel
+at 69% opacity when disabled. AppKit draws the label white at about 12.5%
+over it; SwiftUI draws it at 50%, and the library follows SwiftUI so the
+label stays legible. A disabled on switch keeps a 70% accent
+track and an opaque thumb. A disabled checked checkbox or radio is a neutral
+well (7.5% primary ink; 5% when empty) with a 31% gray mark, not a faded
+accent. Disabled labels use `disabledControlTextColor` (63/255). An AppKit
+default button (`keyEquivalent = "\r"`) does turn gray when disabled. The
+`selectOne` segmented control on macOS 27 fills the selected segment with
+accent (about 75% when disabled). The adapter keeps its neutral selected
+segment.
+
 These findings replace the initial 28 point controls, circular switch thumbs,
 elevated cards and oversized overview. The gallery now opens to ordinary
 editable preferences and the selected component has a compact toolbar title.

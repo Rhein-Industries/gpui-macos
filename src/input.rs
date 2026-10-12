@@ -1,5 +1,6 @@
 //! Native text editing, selection, clipboard and IME supplied by gpui-base.
 use crate::ActiveTheme;
+use crate::NativeTextStyle as _;
 use gpui_kit::base::{
     Input as BaseInput, InputBase, Textarea,
     input::{InputState, TextareaState},
@@ -91,8 +92,7 @@ fn frame(id: impl Into<ElementId>, focused: bool, cx: &App) -> InputBase {
         .bg(t.surface)
         .text_color(t.foreground)
         .font_family(t.font.clone())
-        .text_size(rems(0.8125))
-        .line_height(gpui_kit::relative(1.2))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
         .styles(|s| s.focused(|s| s.border_color(t.accent).shadow(t.focus_shadow())))
 }
 
@@ -144,7 +144,6 @@ pub fn textarea(
     let target = state.clone();
     frame(id, focused, cx)
         .min_h(rems(6.))
-        .line_height(gpui_kit::relative(1.4))
         .py(rems(0.3125))
         .on_mouse_down(MouseButton::Left, move |_, window, cx| {
             target.update(cx, |state, cx| state.focus(window, cx));
@@ -174,8 +173,7 @@ pub fn number_input(state: &Entity<InputState>, cx: &mut App) -> gpui_kit::base:
         .bg(t.surface)
         .text_color(t.foreground)
         .font_family(t.font.clone())
-        .text_size(rems(0.8125))
-        .line_height(gpui_kit::relative(1.2))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
         .input(
             gpui_kit::div()
                 .flex_1()

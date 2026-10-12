@@ -1,3 +1,7 @@
+// Modified by gpui-macos contributors in 2026: render-time control state children.
+// Original: longbridge/gpui-kit 0bbd9870ce420af9feacbf948b21d3824d82dc0b.
+// Copyright 2024-2026 Longbridge; Apache-2.0. See LICENSE-APACHE and MACOS-PATCH.md.
+
 use std::rc::Rc;
 
 use gpui::{
@@ -50,7 +54,7 @@ pub struct Checkbox {
     semantic_styles: CheckboxStyles,
     state: CheckboxState,
     disabled: bool,
-    children: SmallVec<[AnyElement; 2]>,
+    children: SmallVec<[crate::state_child::StateChild; 2]>,
     on_change: Option<ChangeHandler>,
     accessibility_label: Option<SharedString>,
     tab_index: isize,
@@ -60,6 +64,25 @@ pub struct Checkbox {
 }
 
 impl Checkbox {
+    /// Adds a child built with the final disabled state, so an indicator can
+    /// present disabled colors even when `disabled` is set after it is added.
+    pub fn child_with_disabled<E: IntoElement>(
+        self,
+        build: impl FnOnce(bool) -> E + 'static,
+    ) -> Self {
+        self.child_with_state(move |state| build(state.disabled))
+    }
+
+    /// Adds a child built with the final render-time control state.
+    /// `focus_visible` is currently false; focus producers are added separately.
+    pub fn child_with_state<E: IntoElement>(
+        mut self,
+        build: impl FnOnce(crate::ControlState) -> E + 'static,
+    ) -> Self {
+        self.children
+            .push(crate::state_child::StateChild::state(build));
+        self
+    }
     /// Creates an unchecked checkbox with a stable element identifier.
     pub fn new(id: impl Into<ElementId>) -> Self {
         let id = id.into();
@@ -349,7 +372,11 @@ impl Styled for Checkbox {
 
 impl ParentElement for Checkbox {
     fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
-        self.children.extend(elements);
+        self.children.extend(
+            elements
+                .into_iter()
+                .map(crate::state_child::StateChild::Ready),
+        );
     }
 }
 
@@ -393,7 +420,11 @@ impl RenderOnce for Checkbox {
                     })
                 },
             )
-            .children(self.children)
+            .children(
+                self.children
+                    .into_iter()
+                    .map(|child| child.resolve(disabled)),
+            )
             .refine_style(&style)
     }
 }
@@ -555,6 +586,81 @@ mod tests {
         cx.simulate_keystrokes("enter space");
         assert!(changes.borrow().is_empty());
         assert_eq!(parent_clicks.get(), 1);
+    }
+
+    #[gpui::test]
+    fn disabled_aware_children_receive_the_final_state(cx: &mut TestAppContext) {
+        struct View(Rc<RefCell<Vec<bool>>>);
+        impl Render for View {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                let seen = self.0.clone();
+                div().children([false, true].map(|disabled| {
+                    let seen = seen.clone();
+                    Checkbox::new(("seen", disabled as usize))
+                        .child_with_disabled(move |state| {
+                            seen.borrow_mut().push(state);
+                            div()
+                        })
+                        .disabled(disabled)
+                }))
+            }
+        }
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let view_seen = seen.clone();
+        let (_, cx) = cx.add_window_view(move |_, _| View(view_seen));
+        seen.borrow_mut().clear();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert_eq!(&*seen.borrow(), &[false, true]);
+    }
+
+    #[gpui::test]
+    fn state_children_receive_final_state_on_all_controls(cx: &mut TestAppContext) {
+        struct View(Rc<RefCell<Vec<crate::ControlState>>>);
+        impl Render for View {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                let seen = self.0.clone();
+                div().children([false, true].map(|disabled| {
+                    let checkbox = seen.clone();
+                    let radio = seen.clone();
+                    let switch = seen.clone();
+                    div()
+                        .child(
+                            Checkbox::new(("check-state", disabled as usize))
+                                .child_with_state(move |state| {
+                                    checkbox.borrow_mut().push(state);
+                                    div()
+                                })
+                                .disabled(disabled),
+                        )
+                        .child(
+                            crate::Radio::new(("radio-state", disabled as usize))
+                                .child_with_state(move |state| {
+                                    radio.borrow_mut().push(state);
+                                    div()
+                                })
+                                .disabled(disabled),
+                        )
+                        .child(
+                            crate::Switch::new(("switch-state", disabled as usize))
+                                .child_with_state(move |state| {
+                                    switch.borrow_mut().push(state);
+                                    div()
+                                })
+                                .disabled(disabled),
+                        )
+                }))
+            }
+        }
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let view_seen = seen.clone();
+        let (_, cx) = cx.add_window_view(move |_, _| View(view_seen));
+        seen.borrow_mut().clear();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert_eq!(
+            seen.borrow().iter().map(|s| s.disabled).collect::<Vec<_>>(),
+            [false, false, false, true, true, true]
+        );
+        assert!(seen.borrow().iter().all(|s| !s.focus_visible));
     }
 
     #[test]

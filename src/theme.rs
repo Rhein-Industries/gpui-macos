@@ -149,6 +149,15 @@ impl Theme {
         self.accent
             .opacity(if self.is_dark() { 0.25 } else { 0.12 })
     }
+    /// Disabled control labels use tertiary ink (spec §2A.1 and §8.2).
+    pub fn disabled_foreground(&self) -> Hsla {
+        self.tertiary_label()
+    }
+    /// A disabled accent- or red-tinted bezel keeps its hue at the measured
+    /// AppKit opacity rather than turning neutral.
+    pub fn disabled_tint(&self, tint: Hsla) -> Hsla {
+        tint.opacity(crate::tokens::DISABLED_TINT_OPACITY)
+    }
     pub fn pressed_fill(&self) -> Hsla {
         self.foreground.opacity(0.12)
     }
@@ -271,46 +280,9 @@ impl Theme {
         }
     }
     pub(crate) fn apply_palette(self, cx: &mut App) {
+        cx.set_global(self.clone());
         self.sync_kit(cx);
-        let base = gpui_kit::base::Theme::global_mut(cx);
-        base.appearance = self.appearance;
-        base.tokens.colors = self.tokens();
-        base.tokens.radius = RadiusTokens {
-            none: px(0.),
-            sm: px(4.),
-            md: px(6.),
-            lg: px(10.),
-            xl: px(16.),
-            full: px(9999.),
-        };
-        base.tokens.shadow.sm = self.control_shadow();
-        base.tokens.shadow.md = self.popover_shadow();
-        base.tokens.shadow.lg = self.popover_shadow();
-        let type_scale = &mut base.tokens.typography;
-        type_scale.sans = self.font.clone();
-        type_scale.mono = self.mono_font.clone();
-        for (token, size) in [
-            (&mut type_scale.xs, 10.),
-            (&mut type_scale.sm, 11.),
-            (&mut type_scale.md, 13.),
-            (&mut type_scale.lg, 15.),
-            (&mut type_scale.xl, 20.),
-            (&mut type_scale.mono_md, 12.),
-        ] {
-            token.size = px(size);
-            token.line_height = px(size * 1.4);
-        }
-        let duration = Duration::from_millis(180);
-        base.plot = PlotTheme::new().with_motion(
-            PlotMotion::default()
-                .with_pointer(Spring::new(duration).with_epsilon(0.1))
-                .with_enter(
-                    Transition::new(duration)
-                        .easing(Easing::cubic_bezier(0.16, 1., 0.3, 1.).expect("static curve")),
-                )
-                .with_exit(Transition::new(Duration::from_millis(120))),
-        );
-        cx.set_global(self);
+        project_base(cx);
         cx.refresh_windows();
     }
     fn sync_kit(&self, cx: &mut App) {
@@ -497,6 +469,79 @@ impl ActiveTheme for App {
         self.global::<Theme>()
     }
 }
+/// Restore the native projection without mutating Kit-owned behavior settings.
+/// Compare before acquiring `global_mut`: a repair schedules one equal pass.
+pub(crate) fn project_base(cx: &mut App) -> bool {
+    let theme = cx.macos();
+    let base = gpui_kit::base::Theme::global(cx);
+    let mut tokens = gpui_kit::base::SemanticThemeTokens::default();
+    tokens.colors = theme.tokens();
+    tokens.radius = RadiusTokens {
+        none: px(0.),
+        sm: px(crate::tokens::BASE_RADII[0]),
+        md: px(crate::tokens::BASE_RADII[1]),
+        lg: px(crate::tokens::BASE_RADII[2]),
+        xl: px(crate::tokens::BASE_RADII[3]),
+        full: px(9999.),
+    };
+    tokens.shadow.sm = theme.control_shadow();
+    tokens.shadow.md = theme.popover_shadow();
+    tokens.shadow.lg = theme.popover_shadow();
+    let type_scale = &mut tokens.typography;
+    type_scale.sans = theme.font.clone();
+    type_scale.mono = theme.mono_font.clone();
+    // Spec §3.1–3.2; Base mapping is plan D3.
+    for (token, style) in [
+        (&mut type_scale.xs, crate::TextStyle::Footnote),
+        (&mut type_scale.sm, crate::TextStyle::Subheadline),
+        (&mut type_scale.md, crate::TextStyle::Body),
+        (&mut type_scale.lg, crate::TextStyle::Title3),
+        (&mut type_scale.xl, crate::TextStyle::Title2),
+        (&mut type_scale.mono_md, crate::TextStyle::Callout),
+    ] {
+        let style = style.token();
+        token.size = px(style.size);
+        token.line_height = px(style.line_height);
+        token.weight = style.weight;
+    }
+    let duration = Duration::from_millis(180);
+    let plot = PlotTheme::new().with_motion(
+        PlotMotion::default()
+            .with_pointer(Spring::new(duration).with_epsilon(0.1))
+            .with_enter(
+                Transition::new(duration)
+                    .easing(Easing::cubic_bezier(0.16, 1., 0.3, 1.).expect("static curve")),
+            )
+            .with_exit(Transition::new(Duration::from_millis(120))),
+    );
+
+    if base.tokens == tokens && base.appearance == theme.appearance {
+        return false;
+    }
+    let appearance = theme.appearance;
+    let base = gpui_kit::base::Theme::global_mut(cx);
+    base.tokens = tokens;
+    base.appearance = appearance;
+    base.plot = plot;
+    true
+}
+struct BaseProjectionObserver {
+    _subscription: gpui_kit::Subscription,
+}
+impl Global for BaseProjectionObserver {}
+pub(crate) fn init(cx: &mut App) {
+    if !cx.has_global::<BaseProjectionObserver>() {
+        let subscription = cx.observe_global::<gpui_kit::base::Theme>(|cx| {
+            if cx.has_global::<Theme>() {
+                project_base(cx);
+            }
+        });
+        cx.set_global(BaseProjectionObserver {
+            _subscription: subscription,
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -522,7 +567,171 @@ mod tests {
                 assert_eq!(kit.tokens.primary.color, theme.accent);
                 assert_eq!(base.tokens.radius.md, px(6.));
                 assert_eq!(cx.macos(), &theme);
+                assert_native_projection(cx, &theme);
+                assert!(
+                    !project_base(cx),
+                    "synchronous projection is already complete"
+                );
             });
+        }
+    }
+    fn assert_native_projection(cx: &App, theme: &Theme) {
+        let base = gpui_kit::base::Theme::global(cx);
+        assert_eq!(base.appearance, theme.appearance);
+        assert_eq!(base.tokens.colors, theme.tokens());
+        let ty = &base.tokens.typography;
+        for (token, size, height) in [
+            (&ty.xs, 10., 13.),
+            (&ty.sm, 11., 14.),
+            (&ty.md, 13., 16.),
+            (&ty.lg, 15., 20.),
+            (&ty.xl, 17., 22.),
+        ] {
+            assert_eq!(token.size, px(size));
+            assert_eq!(token.line_height, px(height));
+        }
+        let r = &base.tokens.radius;
+        assert_eq!([r.sm, r.md, r.lg, r.xl], [px(5.), px(6.), px(12.), px(16.)]);
+    }
+
+    #[gpui_kit::test]
+    fn plot_pointer_motion_is_restored_after_kit_overwrite(cx: &mut TestAppContext) {
+        use gpui_kit::base::motion::spring;
+        use gpui_kit::component::theme::{Theme as KitTheme, ThemeMode};
+        use gpui_kit::{Context, IntoElement, Render, Window, div};
+        use std::{cell::Cell, rc::Rc};
+        struct Probe {
+            target: f32,
+            kit: Spring,
+            samples: Rc<Cell<(f32, f32, f32)>>,
+        }
+        impl Render for Probe {
+            fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+                let native = gpui_kit::base::Theme::global(cx).plot.motion().pointer();
+                let actual = spring("projected-pointer", self.target, native, window, cx);
+                let expected = spring(
+                    "native-reference",
+                    self.target,
+                    Spring::new(Duration::from_millis(180)).with_epsilon(0.1),
+                    window,
+                    cx,
+                );
+                let kit = spring("kit-reference", self.target, self.kit, window, cx);
+                self.samples.set((actual, expected, kit));
+                div()
+            }
+        }
+        cx.update(crate::init);
+        let kit = cx.update(|cx| {
+            KitTheme::change(ThemeMode::Dark, None, cx);
+            gpui_kit::base::Theme::global(cx).plot.motion().pointer()
+        });
+        cx.run_until_parked();
+        let samples = Rc::new(Cell::new((0., 0., 0.)));
+        let captured = samples.clone();
+        let (view, visual) = cx.add_window_view(move |_, _| Probe {
+            target: 0.,
+            kit,
+            samples: captured,
+        });
+        visual.update(|window, _| window.activate_window());
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.update(|window, cx| {
+            view.update(cx, |probe, cx| {
+                probe.target = 100.;
+                cx.notify();
+            });
+            window.draw(cx).clear(cx);
+        });
+        visual.run_until_parked();
+        visual.executor().advance_clock(Duration::from_millis(50));
+        visual.update(|window, cx| {
+            window.refresh();
+            window.draw(cx).clear(cx);
+        });
+        let (actual, expected, kit) = samples.get();
+        assert!(
+            0. < expected && expected < 100.,
+            "sample during pointer travel: {actual}, {expected}, {kit}"
+        );
+        assert_eq!(
+            actual, expected,
+            "native pointer must have its 180 ms response"
+        );
+        assert_ne!(actual, kit, "Kit's 120 ms response must have been replaced");
+    }
+
+    #[gpui_kit::test]
+    fn kit_overwrites_are_repaired_and_observation_terminates(cx: &mut TestAppContext) {
+        use gpui_kit::base::ScrollbarMode;
+        use gpui_kit::component::theme::{Theme as KitTheme, ThemeMode};
+        use std::{cell::Cell, rc::Rc};
+        cx.update(crate::init);
+        cx.update(|cx| {
+            init(cx);
+            init(cx);
+        });
+        cx.run_until_parked();
+        let passes = Rc::new(Cell::new(0));
+        let observed = passes.clone();
+        let _subscription = cx.update(|cx| {
+            cx.observe_global::<gpui_kit::base::Theme>(move |_| observed.set(observed.get() + 1))
+        });
+        for theme in [Theme::light(), Theme::dark()] {
+            cx.update(|cx| theme.clone().apply(cx));
+            cx.run_until_parked();
+            for mode in [
+                ScrollbarMode::Always,
+                ScrollbarMode::Scrolling,
+                ScrollbarMode::Hover,
+            ] {
+                passes.set(0);
+                cx.update(|cx| KitTheme::set_scrollbar_mode(mode, cx));
+                cx.run_until_parked();
+                cx.update(|cx| {
+                    assert_native_projection(cx, &theme);
+                    assert_eq!(gpui_kit::base::Theme::global(cx).scrollbar.mode(), mode);
+                    let kit = KitTheme::global(cx);
+                    assert_eq!(kit.scrollbar_mode, mode);
+                    let base = gpui_kit::base::Theme::global(cx);
+                    assert_eq!(base.resizable.handle, Some(kit.border));
+                    assert_eq!(base.resizable.active_handle, Some(kit.drag_border));
+                    assert!(!project_base(cx));
+                });
+                assert!(
+                    (1..=2).contains(&passes.get()),
+                    "{} notification passes",
+                    passes.get()
+                );
+                passes.set(0);
+                cx.update(|cx| {
+                    KitTheme::change(
+                        if theme.is_dark() {
+                            ThemeMode::Light
+                        } else {
+                            ThemeMode::Dark
+                        },
+                        None,
+                        cx,
+                    )
+                });
+                cx.run_until_parked();
+                cx.update(|cx| {
+                    assert_native_projection(cx, &theme);
+                    assert_eq!(gpui_kit::base::Theme::global(cx).scrollbar.mode(), mode);
+                    let kit = KitTheme::global(cx);
+                    assert_eq!(kit.scrollbar_mode, mode);
+                    let base = gpui_kit::base::Theme::global(cx);
+                    assert_eq!(base.resizable.handle, Some(kit.border));
+                    assert_eq!(base.resizable.active_handle, Some(kit.drag_border));
+                    assert!(!project_base(cx));
+                });
+                assert!((1..=2).contains(&passes.get()));
+                let settled = passes.get();
+                cx.run_until_parked();
+                assert_eq!(passes.get(), settled);
+            }
         }
     }
 }

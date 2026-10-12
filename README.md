@@ -123,6 +123,10 @@ upstream reference. `catalog::COMPONENTS` supplies typed metadata and
 
 Applications own checkbox, switch, radio, toggle and selection state. Pass the
 current value on each render, then update it in `on_change` or `on_click`.
+Checkbox, Radio and Switch also expose `child_with_state` for children that
+need the final disabled flag; `child_with_disabled` remains a bool adapter.
+`ControlState::focus_visible` is reserved and currently false.
+
 Editors, pickers, trees and virtual lists retain their `Entity` state. IDs must
 be stable and unique among siblings. Wrap a window's controls in `focus_scope`
 for Tab traversal. Use `open_window` to install a Root host and appearance
@@ -151,6 +155,14 @@ Theme::follow_system(cx);
 The accent and material tint survive system appearance changes. The theme
 updates native adapters, GPUI Base semantic tokens and GPUI Kit resolved tokens
 together. `Theme` exposes color, font and material values for custom controls.
+Use `NativeTextStyle::native_text_style(TextStyle::Body, cx.macos())` for custom
+text. The native roles set family, size, weight and absolute line advance:
+Body is 13/16 points, Title3 is 15/20. Points are applied in rems so text scales
+with zoom. Values in `src/tokens.rs` cite `docs/native-spec.md`.
+
+Base uses native type and radius scales. Kit theme updates are repaired before
+the next ordinary frame; scrollbar and resize settings stay under Kit's control.
+Raw `kit::*` components retain Kit's text sizing.
 Dimensions use rem units so interface zoom also scales control geometry.
 Call `set_zoom(125, window, cx)` to set a window to 125%; `zoom_percent(window)`
 reads it back. The Root host preserves this setting across renders and theme

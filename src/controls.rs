@@ -1,4 +1,6 @@
 //! Styled constructors retain gpui-base's controlled-state builder APIs.
+use crate::NativeTextStyle as _;
+use crate::tokens::{disabled_control_fill, disabled_control_mark};
 use crate::{ActiveTheme, Button, IconName, Link, icon};
 use gpui_kit::base::{Checkbox, CheckboxState, Radio, Switch, Tab, Tabs, Toggle};
 use gpui_kit::prelude::FluentBuilder;
@@ -48,6 +50,14 @@ pub(crate) fn unchecked_control_fill(theme: &crate::Theme, active: bool) -> Hsla
     }
 }
 
+fn disabled_aware_fill(theme: &crate::Theme, active: bool, disabled: bool, selected: bool) -> Hsla {
+    match (disabled, selected) {
+        (true, selected) => disabled_control_fill(theme, selected),
+        (false, true) => control_selection(theme, active),
+        (false, false) => unchecked_control_fill(theme, active),
+    }
+}
+
 pub(crate) fn slider_selection(theme: &crate::Theme, active: bool) -> Hsla {
     if active {
         theme.accent
@@ -63,13 +73,18 @@ pub(crate) fn slider_selection(theme: &crate::Theme, active: bool) -> Hsla {
 }
 
 #[derive(IntoElement)]
-struct NativeCheckboxIndicator(ElementId, CheckboxState);
+struct NativeCheckboxIndicator(ElementId, CheckboxState, bool);
 
 impl RenderOnce for NativeCheckboxIndicator {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = cx.macos();
         let active = window.is_window_active();
-        let mark = control_mark(theme, active);
+        let disabled = self.2;
+        let mark = if disabled {
+            disabled_control_mark(theme)
+        } else {
+            control_mark(theme, active)
+        };
         div()
             .size(rems(1.))
             .debug_selector(move || format!("macos-checkbox-indicator-{}", self.0))
@@ -78,11 +93,12 @@ impl RenderOnce for NativeCheckboxIndicator {
             .items_center()
             .justify_center()
             .rounded(rems(0.25))
-            .bg(if self.1 == CheckboxState::Unchecked {
-                unchecked_control_fill(theme, active)
-            } else {
-                control_selection(theme, active)
-            })
+            .bg(disabled_aware_fill(
+                theme,
+                active,
+                disabled,
+                self.1 != CheckboxState::Unchecked,
+            ))
             .text_color(mark)
             .when(self.1 != CheckboxState::Unchecked, |indicator| {
                 indicator.child(
@@ -99,32 +115,28 @@ impl RenderOnce for NativeCheckboxIndicator {
 }
 
 #[derive(IntoElement)]
-struct NativeRadioIndicator(ElementId, bool);
+struct NativeRadioIndicator(ElementId, bool, bool);
 
 impl RenderOnce for NativeRadioIndicator {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = cx.macos();
         let active = window.is_window_active();
+        let disabled = self.2;
         div()
             .size(rems(1.))
             .debug_selector(move || format!("macos-radio-indicator-{}", self.0))
             .flex_shrink_0()
             .rounded_full()
-            .bg(if self.1 {
-                control_selection(theme, active)
-            } else {
-                unchecked_control_fill(theme, active)
-            })
+            .bg(disabled_aware_fill(theme, active, disabled, self.1))
             .flex()
             .items_center()
             .justify_center()
             .when(self.1, |indicator| {
-                indicator.child(
-                    div()
-                        .size(rems(0.25))
-                        .rounded_full()
-                        .bg(control_mark(theme, active)),
-                )
+                indicator.child(div().size(rems(0.25)).rounded_full().bg(if disabled {
+                    disabled_control_mark(theme)
+                } else {
+                    control_mark(theme, active)
+                }))
             })
     }
 }
@@ -174,13 +186,17 @@ pub fn button(
         .rounded(rems(0.375))
         .border_color(t.foreground.opacity(0.))
         .font_family(t.font.clone())
-        .text_size(rems(0.8125))
-        .line_height(gpui_kit::relative(1.2))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
         .font_weight(FontWeight::NORMAL)
         .bg(bg)
         .text_color(fg)
         .when(filled, |button| {
-            button.inactive_style(t.control_fill(), t.foreground)
+            button
+                .inactive_style(t.control_fill(), t.foreground)
+                .disabled_style(
+                    t.disabled_tint(bg),
+                    fg.opacity(crate::tokens::DISABLED_TINT_LABEL_OPACITY),
+                )
         })
         .hover(|s| s.bg(hover_bg))
         .focus_visible(|s| s.border_color(t.accent).shadow(t.focus_shadow()))
@@ -233,12 +249,11 @@ pub fn checkbox(
         .rounded(rems(0.25))
         .text_color(t.foreground)
         .font_family(t.font.clone())
-        .text_size(rems(0.8125))
-        .line_height(gpui_kit::relative(1.2))
-        .child(NativeCheckboxIndicator(id, state))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
+        .child_with_disabled(move |disabled| NativeCheckboxIndicator(id, state, disabled))
         .child(label)
         .focus_visible(|s| s.shadow(t.focus_shadow()))
-        .styles(|s| s.disabled(|s| s.opacity(0.45)))
+        .styles(|s| s.disabled(|s| s.text_color(t.disabled_foreground())))
 }
 
 pub fn switch(
@@ -261,11 +276,12 @@ pub fn switch(
         .rounded(rems(0.75))
         .text_color(t.foreground)
         .font_family(t.font.clone())
-        .text_size(rems(0.8125))
-        .line_height(gpui_kit::relative(1.2))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
         .focus_visible(|s| s.shadow(t.focus_shadow()))
-        .styles(|s| s.disabled(|s| s.opacity(0.45)))
-        .child(crate::switch_motion::SwitchMotion::new(id, checked))
+        .styles(|s| s.disabled(|s| s.text_color(t.disabled_foreground())))
+        .child_with_disabled(move |disabled| {
+            crate::switch_motion::SwitchMotion::new(id, checked).disabled(disabled)
+        })
         .child(label)
 }
 
@@ -290,12 +306,11 @@ pub fn radio(
         .rounded(rems(0.25))
         .text_color(t.foreground)
         .font_family(t.font.clone())
-        .text_size(rems(0.8125))
-        .line_height(gpui_kit::relative(1.2))
-        .child(NativeRadioIndicator(id, checked))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
+        .child_with_disabled(move |disabled| NativeRadioIndicator(id, checked, disabled))
         .child(label)
         .focus_visible(|s| s.shadow(t.focus_shadow()))
-        .styles(|s| s.disabled(|s| s.opacity(0.45)))
+        .styles(|s| s.disabled(|s| s.text_color(t.disabled_foreground())))
 }
 
 pub fn toggle(
@@ -323,8 +338,7 @@ pub fn toggle(
         .bg(t.control_fill())
         .text_color(t.foreground)
         .font_family(t.font.clone())
-        .text_size(rems(0.8125))
-        .line_height(gpui_kit::relative(1.2))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
         .font_weight(FontWeight::NORMAL)
         .child(label)
         .hover(|s| s.bg(t.hover_fill()).border_color(t.focus_border()))
@@ -350,8 +364,7 @@ pub fn toggle_group(id: impl Into<ElementId>, cx: &App) -> gpui_kit::base::Toggl
         .items_center()
         .gap(rems(0.375))
         .font_family(t.font.clone())
-        .text_size(rems(0.8125))
-        .line_height(gpui_kit::relative(1.2))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
         .text_color(t.foreground)
 }
 
@@ -371,8 +384,7 @@ pub fn link(
         .flex()
         .items_center()
         .gap(rems(0.375))
-        .text_size(rems(0.8125))
-        .line_height(gpui_kit::relative(1.2))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
         .font_family(t.font.clone())
         .text_color(t.accent)
         .rounded(rems(0.25))
@@ -421,8 +433,7 @@ pub fn tab(
         .rounded(rems(0.3125))
         .border_color(t.foreground.opacity(0.))
         .font_family(t.font.clone())
-        .text_size(rems(0.8125))
-        .line_height(gpui_kit::relative(1.2))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
         .font_weight(FontWeight::NORMAL)
         .text_color(t.secondary)
         .hover(|s| s.bg(t.hover_fill()))
@@ -468,6 +479,7 @@ mod tests {
                         cx,
                     )
                     .disabled(true)
+                    .underline()
                     .debug_selector(|| "activation-disabled".into()),
                 )
                 .child(
@@ -485,6 +497,23 @@ mod tests {
                 .child(radio("activation-off-radio", "Manual", false, cx))
                 .child(switch("activation-switch", "Wi-Fi", true, cx))
                 .child(switch("activation-off-switch", "AirDrop", false, cx))
+                .child(
+                    checkbox(
+                        "activation-disabled-checkbox",
+                        "Managed",
+                        CheckboxState::Checked,
+                        cx,
+                    )
+                    .disabled(true)
+                    .underline()
+                    .debug_selector(|| "activation-disabled-checkbox".into()),
+                )
+                .child(radio("activation-disabled-radio", "Locked", true, cx).disabled(true))
+                .child(switch("activation-disabled-switch", "Managed", true, cx).disabled(true))
+                .child(
+                    switch("activation-disabled-off-switch", "Managed off", false, cx)
+                        .disabled(true),
+                )
                 .child(crate::slider(&self.slider, false, window, cx).w(rems(12.)))
         }
     }
@@ -501,6 +530,27 @@ mod tests {
                 .background
                 .as_solid()
                 .unwrap()
+        })
+    }
+
+    // An inherited underline paints in the actual label ink, exposing the
+    // rendered text color without duplicating the control's style resolution.
+    fn painted_label_color(cx: &mut VisualTestContext, selector: &'static str) -> Hsla {
+        let bounds = cx.debug_bounds(selector).expect(selector);
+        cx.update(|window, _| {
+            let bounds = bounds.scale(window.scale_factor());
+            let colors: Vec<_> = window
+                .painted_underlines()
+                .into_iter()
+                .filter(|line| bounds.contains(&line.bounds.center()))
+                .map(|line| line.color)
+                .collect();
+            assert!(
+                !colors.is_empty(),
+                "{selector} must paint its label underline"
+            );
+            assert!(colors.iter().all(|color| *color == colors[0]));
+            colors[0]
         })
     }
 
@@ -580,8 +630,39 @@ mod tests {
             }
             let disabled = painted_background(cx, "activation-disabled");
             assert_eq!(painted_radio_mark(cx), theme.on_accent);
-            assert!(disabled.a < 1., "disabled bezels remain faded");
-            assert_eq!(disabled.s, 0., "disabled primary uses a neutral bezel");
+            assert_eq!(
+                disabled,
+                theme.accent.opacity(0.69),
+                "a disabled primary keeps a faded accent bezel"
+            );
+            for selector in [
+                "macos-checkbox-indicator-activation-disabled-checkbox",
+                "macos-radio-indicator-activation-disabled-radio",
+            ] {
+                assert_eq!(
+                    painted_background(cx, selector),
+                    crate::tokens::disabled_control_fill(&theme, true),
+                    "{selector} is a neutral well rather than a faded accent"
+                );
+            }
+            assert_eq!(
+                painted_background(cx, "macos-switch-track-activation-disabled-switch"),
+                theme.accent.opacity(0.71),
+                "a disabled on switch keeps a faded accent track"
+            );
+            assert_eq!(
+                painted_label_color(cx, "activation-disabled-checkbox"),
+                theme.tertiary_label()
+            );
+            let expected_off = if theme.is_dark() {
+                Hsla::from(gpui_kit::rgb(0xcfcfcf)).opacity(0.063)
+            } else {
+                Hsla::black().opacity(0.051)
+            };
+            assert_eq!(
+                painted_background(cx, "macos-switch-track-activation-disabled-off-switch"),
+                expected_off
+            );
             cx.deactivate_window();
             cx.update(|window, cx| {
                 assert!(!window.is_window_active());
@@ -599,6 +680,29 @@ mod tests {
                 assert_eq!(fill.a, 1., "inactive remains enabled rather than disabled");
                 assert_ne!(fill, theme.accent);
             }
+            assert_eq!(
+                painted_background(cx, "activation-disabled"),
+                crate::tokens::disabled_bezel(&theme).0,
+                "an inactive disabled prominent button uses Bezel disabled"
+            );
+            let expected_label = if theme.is_dark() {
+                Hsla::white().opacity(0.290)
+            } else {
+                Hsla::black().opacity(0.257)
+            };
+            assert_eq!(
+                painted_label_color(cx, "activation-disabled"),
+                expected_label,
+                "inactive and disabled prominent label uses Bezel disabled ink"
+            );
+            assert_eq!(
+                painted_label_color(cx, "activation-disabled-checkbox"),
+                theme.tertiary_label()
+            );
+            assert_eq!(
+                painted_background(cx, "macos-switch-track-activation-disabled-off-switch"),
+                expected_off
+            );
             let expected_thumb: Hsla =
                 gpui_kit::rgb(if theme.is_dark() { 0xdedede } else { 0xffffff }).into();
             {

@@ -1,4 +1,5 @@
 //! Edge-attached modal details, with dismissal and focus trapping owned by base.
+use crate::NativeTextStyle as _;
 use crate::{ActiveTheme, dialog_backdrop};
 use gpui_kit::rems;
 use gpui_kit::{App, Div, FocusHandle, div, prelude::*, relative};
@@ -30,7 +31,7 @@ pub fn sheet_surface(cx: &App) -> Div {
         .bg(t.surface)
         .shadow(t.popover_shadow())
         .font_family(t.font.clone())
-        .text_size(rems(0.8125))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
         .text_color(t.foreground)
         .occlude()
 }

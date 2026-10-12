@@ -1,4 +1,5 @@
 //! A keyboard menu composed from the base Popover and Button primitives.
+use crate::NativeTextStyle as _;
 use crate::{ActiveTheme, ButtonVariant, IconName, button, icon, keystroke_label};
 use gpui_kit::base::{ElementExt, Popover, Popup};
 use gpui_kit::rems;
@@ -98,7 +99,7 @@ impl MenuItem {
             .map(|label: SharedString| {
                 div()
                     .font_family(cx.macos().font.clone())
-                    .text_size(rems(0.75))
+                    .native_text_style(crate::TextStyle::Callout, cx.macos())
                     .opacity(0.72)
                     .child(label)
                     .into_any_element()
@@ -235,7 +236,7 @@ pub fn menu(
                 })
                 .text_color(t.foreground)
                 .font_family(t.font.clone())
-                .text_size(rems(0.8125))
+                .native_text_style(crate::TextStyle::MenuItem, cx.macos())
                 .on_action(move |_: &gpui_kit::base::actions::Confirm, window, cx| {
                     cx.stop_propagation();
                     if let Some(index) = *confirm_cursor.read(cx) {
@@ -623,7 +624,7 @@ fn submenu_panel(
         })
         .text_color(t.foreground)
         .font_family(t.font.clone())
-        .text_size(rems(0.8125))
+        .native_text_style(crate::TextStyle::MenuItem, cx.macos())
         .children(items.iter().enumerate().map(|(index, (_, item))| {
             let hover_cursor = cursor.clone();
             let click_cursor = cursor.clone();

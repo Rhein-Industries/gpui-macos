@@ -4,6 +4,7 @@
 //! level. AppKit can therefore sample that scene, while a transparent GPUI
 //! renderer inside `NSGlassEffectView.contentView` owns the foreground.
 use crate::ActiveTheme;
+use crate::NativeTextStyle as _;
 use gpui_kit::{
     AnyWindowHandle, App, AppContext, AsyncApp, Bounds, Context, Entity, FocusHandle, Hsla,
     InteractiveElement, IntoElement, ParentElement, Pixels, Render, StatefulInteractiveElement,
@@ -178,14 +179,11 @@ impl<V: Render + 'static> Render for GlassPanel<V> {
         fill.a = 1.;
         let border = cx.macos().glass_border();
         let foreground = cx.macos().foreground;
-        let font = cx.macos().font.clone();
         let mut pane = div()
             .id("native-glass-panel")
             .size_full()
             .rounded(self.options.corner_radius)
-            .text_size(px(13.))
-            .line_height(gpui_kit::relative(1.2))
-            .font_family(font)
+            .native_text_style(crate::TextStyle::Body, cx.macos())
             .text_color(foreground)
             .role(gpui_kit::accesskit::Role::Dialog)
             .tab_group()

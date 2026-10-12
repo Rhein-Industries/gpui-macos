@@ -1,5 +1,6 @@
 //! Rounded content surfaces and non-interactive information components.
 use crate::ActiveTheme;
+use crate::NativeTextStyle as _;
 use gpui_kit::base::{Progress, ProgressIndicator, ProgressTrack};
 use gpui_kit::rems;
 use gpui_kit::{
@@ -18,12 +19,11 @@ pub fn panel(title: impl Into<SharedString>, cx: &App) -> Div {
         .rounded(rems(0.75))
         .bg(t.normal_fill())
         .font_family(t.font.clone())
-        .text_size(rems(0.8125))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
         .text_color(t.foreground)
         .child(
             div()
-                .text_size(rems(0.875))
-                .font_weight(FontWeight::SEMIBOLD)
+                .native_text_style(crate::TextStyle::ToolbarTitle, t)
                 .child(title.into()),
         )
 }
@@ -50,9 +50,9 @@ pub fn keycap(key: impl Into<SharedString>, cx: &App) -> Div {
     // macOS draws ⌘⌥⇧ from the system UI face (Menlo lacks them and falls back
     // to undersized glyphs), a touch larger so the symbols stay legible.
     let (font, size) = if cfg!(target_os = "macos") {
-        (t.font.clone(), rems(0.75))
+        (t.font.clone(), crate::TextStyle::Callout)
     } else {
-        (t.mono_font.clone(), rems(0.6875))
+        (t.mono_font.clone(), crate::TextStyle::Subheadline)
     };
     div()
         .px(rems(0.25))
@@ -61,10 +61,10 @@ pub fn keycap(key: impl Into<SharedString>, cx: &App) -> Div {
         .rounded(rems(0.25))
         .border_color(t.divider())
         .bg(t.inset)
+        .native_text_style(size, t)
+        // Keep the cap tight to its own font, independent of inherited advance.
+        .line_height(rems(size.token().size / 16.))
         .font_family(font)
-        .text_size(size)
-        // Pin to the cap's own font size so an inherited line height can't inflate it.
-        .line_height(relative(1.))
         .font_weight(FontWeight::NORMAL)
         .text_color(t.secondary)
         .child(key.into())
@@ -231,7 +231,7 @@ pub fn badge(label: impl Into<SharedString>, status: Status, cx: &App) -> Div {
         .bg(color.opacity(0.12))
         .text_color(color)
         .font_family(t.font.clone())
-        .text_size(rems(0.6875))
+        .native_text_style(crate::TextStyle::Subheadline, cx.macos())
         .child(label.into())
 }
 
@@ -249,7 +249,7 @@ pub fn empty_state(
         .gap(rems(0.5))
         .p(rems(1.125))
         .font_family(t.font.clone())
-        .text_size(rems(0.8125))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
         .text_color(t.foreground)
         .child(div().font_weight(FontWeight::SEMIBOLD).child(title.into()))
         .child(div().text_color(t.secondary).child(description.into()))
@@ -329,7 +329,7 @@ pub fn toast(id: impl Into<gpui_kit::ElementId>, cx: &App) -> gpui_kit::base::To
         .shadow(t.popover_shadow())
         .text_color(t.foreground)
         .font_family(t.font.clone())
-        .text_size(rems(0.8125))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
 }
 
 /// A circular identity marker. Supply initials or an icon in the fallback slot;
@@ -345,7 +345,7 @@ pub fn avatar(initials: impl Into<SharedString>, cx: &App) -> gpui_kit::base::Av
         .border_color(t.control_border())
         .bg(t.hover_fill())
         .font_family(t.font.clone())
-        .text_size(rems(0.75))
+        .native_text_style(crate::TextStyle::Callout, cx.macos())
         .text_color(t.foreground)
         .fallback(
             gpui_kit::base::AvatarFallback::new()

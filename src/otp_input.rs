@@ -1,4 +1,5 @@
 use crate::ActiveTheme;
+use crate::NativeTextStyle as _;
 use gpui_kit::base::{OtpState, StyledExt as _};
 use gpui_kit::rems;
 use gpui_kit::{App, Entity, Focusable, MouseButton, Window, div, prelude::*};
@@ -87,8 +88,7 @@ impl RenderOnce for OtpInput {
                         Vec::new()
                     })
                     .font_family(t.font.clone())
-                    .text_size(rems(0.8125))
-                    .line_height(gpui_kit::relative(1.2))
+                    .native_text_style(crate::TextStyle::Body, cx.macos())
                     .text_color(t.foreground)
                     .when(!self.disabled, |cell| {
                         cell.on_mouse_down(MouseButton::Left, move |_, window, cx| {

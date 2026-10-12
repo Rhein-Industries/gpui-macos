@@ -1,4 +1,5 @@
 //! Select and searchable Combobox presentations over the controlled base roots.
+use crate::NativeTextStyle as _;
 use crate::{ActiveTheme, ButtonVariant, IconName, button, icon, input};
 use gpui_kit::base::{Combobox, ElementExt as _, Popup, Select, input::InputState};
 use gpui_kit::rems;
@@ -486,8 +487,7 @@ fn choice_content(
         .bg(t.surface)
         .text_color(t.foreground)
         .font_family(t.font.clone())
-        .text_size(rems(0.8125))
-        .line_height(gpui_kit::relative(1.2))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
         .flex()
         .flex_col()
         .gap(rems(0.375))

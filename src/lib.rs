@@ -47,6 +47,7 @@ mod system_theme;
 pub mod table;
 pub mod text;
 pub mod theme;
+pub mod tokens;
 pub mod tooltip;
 pub mod tree;
 pub mod window;
@@ -91,6 +92,7 @@ pub use system_theme::{observe_window, refresh_accessibility};
 pub use table::*;
 pub use text::{html, markdown, text_view_style};
 pub use theme::{ActiveTheme, Theme};
+pub use tokens::{NativeTextMetrics, NativeTextStyle, TextStyle};
 pub use tooltip::{tooltip, with_tooltip};
 pub use tree::tree;
 pub use window::{set_zoom, zoom_percent};
@@ -166,6 +168,7 @@ pub fn open_window<V: gpui_kit::Render + 'static>(
 /// Initialize all behavior, native adapters, and system appearance once at startup.
 pub fn init(cx: &mut gpui_kit::App) {
     gpui_kit::init(cx);
+    theme::init(cx);
     window::init(cx);
     focus::init(cx);
     button_group::init(cx);

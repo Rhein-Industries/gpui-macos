@@ -1,5 +1,6 @@
 //! Virtualized lists retain base's sizing and scroll model.
 use crate::ActiveTheme;
+use crate::NativeTextStyle as _;
 use gpui_kit::rems;
 use gpui_kit::{
     App, Context, Div, ElementId, Entity, IntoElement, Pixels, Render, Size, Stateful, Styled,
@@ -22,7 +23,7 @@ pub fn virtual_list<V: Render, R: IntoElement>(
         .w_full()
         .h(rems(17.5))
         .font_family(t.font.clone())
-        .text_size(rems(0.8125))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
         .text_color(t.foreground)
         .bg(t.background)
 }
@@ -71,7 +72,7 @@ pub fn inset_list(cx: &App) -> Div {
         .rounded(rems(0.75))
         .bg(t.normal_fill())
         .font_family(t.font.clone())
-        .text_size(rems(0.8125))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
         .text_color(t.foreground)
 }
 

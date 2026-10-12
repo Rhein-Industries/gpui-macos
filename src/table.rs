@@ -1,5 +1,6 @@
 //! Primitive tables: application-owned columns, rows and content.
 use crate::ActiveTheme;
+use crate::NativeTextStyle as _;
 use gpui_kit::base::{Table, TableCell, TableHead, TableRow};
 use gpui_kit::rems;
 use gpui_kit::{App, ElementId, FontWeight, InteractiveElement, Styled, prelude::FluentBuilder};
@@ -12,7 +13,7 @@ pub fn table(id: impl Into<ElementId>, cx: &App) -> Table {
         .bg(t.background)
         .text_color(t.foreground)
         .font_family(t.font.clone())
-        .text_size(rems(0.8125))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
 }
 
 /// `index` is the one-based accessibility row index, including the header.

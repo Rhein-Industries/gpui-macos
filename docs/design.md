@@ -29,12 +29,32 @@ cannot drift independently. Cargo.lock records the transitive renderer versions.
    navigation underlays and separate glass popup windows. `NativeAssets` supplies host SF Symbols
    to both the adapters and nested Kit icons. Applications own navigation state.
 
-`Theme::apply_palette` updates all three presentation layers atomically on the
-UI thread. Kit's supported theme update method reconciles solid colors with
-resolved tokens before the base tokens are projected. Each window receives
+`Theme::apply_palette` sets the macOS global, synchronizes Kit, then projects
+native Base tokens, appearance and plot motion synchronously on the UI thread.
+One retained Base-global observer repairs later Kit overwrites. It compares
+tokens and appearance immutably before writing, so a repair schedules one equal
+pass and terminates. Base is repaired before the next ordinary frame; an explicit
+`window.draw` inside the same Kit-update callback can still see Kit's projection.
+Scrollbar and resizable settings are never changed by the native projection. Each window receives
 the same global palette. Explicit appearance also updates native window chrome;
 following the system clears that override. Appearance subscriptions are scoped
 to the lifetime of each window.
+
+## Typography
+
+`src/tokens.rs` holds native values copied by hand from `docs/native-spec.md`,
+with section citations. `TextStyle` and `NativeTextStyle::native_text_style`
+apply the system family, role weight, size and absolute line advance in rems.
+Roots inherit Body (13/16 points); Title3 uses the measured 20 point advance.
+Base typography is xs 10/13, sm 11/14, md 13/16, lg 15/20, xl 17/22;
+Base mono_md maps to Callout (12/15 points). Base radii are 5, 6, 12, 16 points.
+Raw Kit controls retain Kit typography.
+The token lint ratchets production literals independently of examples and tests.
+
+Checkbox, Radio and Switch build state-dependent children at render time through
+`child_with_state(ControlState)`. The final disabled flag is available even when
+set after children are added. `child_with_disabled` adapts the same hook to bool;
+`focus_visible` is reserved and currently false, preserving existing focus behavior.
 
 ## Geometry
 

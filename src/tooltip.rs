@@ -1,5 +1,6 @@
 //! Short, non-interactive explanations with GPUI's tooltip lifecycle.
 use crate::ActiveTheme;
+use crate::NativeTextStyle as _;
 use gpui_kit::rems;
 use gpui_kit::{
     App, AppContext, Context, Render, SharedString, StatefulInteractiveElement, Window, prelude::*,
@@ -20,7 +21,7 @@ pub fn tooltip(text: impl Into<SharedString>, cx: &App) -> gpui_kit::base::Toolt
         .shadow(t.control_shadow())
         .text_color(t.foreground)
         .font_family(t.font.clone())
-        .text_size(rems(0.6875))
+        .native_text_style(crate::TextStyle::Tooltip, cx.macos())
         .child(text.into())
 }
 

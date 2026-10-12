@@ -1,3 +1,4 @@
+use crate::NativeTextStyle as _;
 use crate::{ActiveTheme, IconName, icon};
 use gpui_kit::base::{Tree, TreeState};
 use gpui_kit::rems;
@@ -24,7 +25,7 @@ pub fn tree(state: &Entity<TreeState>, cx: &App) -> Tree {
                 .pl(rems(0.375 + entry.depth() as f32 * 1.25))
                 .pr(rems(0.5))
                 .font_family(t.font.clone())
-                .text_size(rems(0.8125))
+                .native_text_style(crate::TextStyle::Body, &t)
                 .text_color(if state.is_selected() {
                     crate::controls::control_mark(&t, active)
                 } else {

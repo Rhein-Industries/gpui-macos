@@ -1,10 +1,11 @@
 //! Read-only rich text using base's Markdown and HTML renderers.
 use crate::ActiveTheme;
+use crate::NativeTextStyle as _;
 use gpui_kit::base::{TextView, TextViewStyle};
 use gpui_kit::{App, ElementId, SharedString, StyleRefinement, Styled, Window, rems};
 
 /// Theme mapping shared by Markdown, HTML and state-backed TextViews.
-pub fn text_view_style(window: &Window, cx: &App) -> TextViewStyle {
+pub fn text_view_style(_window: &Window, cx: &App) -> TextViewStyle {
     let t = cx.macos();
     TextViewStyle::from_theme(&gpui_kit::base::Theme::global(cx))
         .with_foreground(t.foreground)
@@ -19,16 +20,21 @@ pub fn text_view_style(window: &Window, cx: &App) -> TextViewStyle {
         })
         .with_paragraph_gap(rems(0.75))
         .with_heading({
-            let base = rems(0.75).to_pixels(window.rem_size());
+            // Native heading roles, spec §3.1; absolute advances scale with zoom (§3.2).
+            let font = t.font.clone();
             move |level| {
-                StyleRefinement::default().text_size(
-                    base * match level {
-                        1 => 5. / 3.,
-                        2 => 4. / 3.,
-                        3 => 7. / 6.,
-                        _ => 1.,
-                    },
-                )
+                let role = match level {
+                    1 => crate::TextStyle::Title,
+                    2 => crate::TextStyle::Title2,
+                    3 => crate::TextStyle::Title3,
+                    _ => crate::TextStyle::Headline,
+                };
+                let token = role.token();
+                StyleRefinement::default()
+                    .font_family(font.clone())
+                    .text_size(rems(token.size / 16.))
+                    .font_weight(token.weight)
+                    .line_height(rems(token.line_height / 16.))
             }
         })
         .with_code_block(StyleRefinement::default().p(rems(0.625)).rounded(rems(0.5)))
@@ -43,7 +49,7 @@ pub fn markdown(
     TextView::markdown(id, source)
         .style(text_view_style(window, cx))
         .font_family(cx.macos().font.clone())
-        .text_size(rems(0.8125))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
         .selectable(true)
 }
 
@@ -56,7 +62,7 @@ pub fn html(
     TextView::html(id, source)
         .style(text_view_style(window, cx))
         .font_family(cx.macos().font.clone())
-        .text_size(rems(0.8125))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
         .selectable(true)
 }
 

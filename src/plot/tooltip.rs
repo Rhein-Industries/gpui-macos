@@ -1,6 +1,7 @@
 //! The hover overlay an macOS chart returns from [`Plot::tooltip`](super::Plot::tooltip):
 //! a crosshair or band, square data markers, and a compact square box in the
 //! shell tooltip's surface.
+use crate::NativeTextStyle as _;
 use gpui_kit::base::motion::spring;
 pub use gpui_kit::base::plot::{PlotHover, TooltipState};
 use gpui_kit::base::plot::{hover_progress, is_hover_entering, pointer_spring};
@@ -533,7 +534,7 @@ impl RenderOnce for Tooltip {
                 .when_some(title, |this, title| {
                     this.child(
                         div()
-                            .text_color(t.bright)
+                            .text_color(crate::tokens::ink(&t))
                             .font_weight(FontWeight::BOLD)
                             .child(title),
                     )
@@ -570,7 +571,7 @@ impl RenderOnce for Tooltip {
         // transient overlay over dense data reads at the compact tier, and a
         // per-call-site size is how a dozen charts end up at a dozen sizes.
         // Content that wants a hierarchy sets it on its own children.
-        let content = content.text_size(rems(0.6875));
+        let content = content.native_text_style(crate::TextStyle::Tooltip, cx.macos());
 
         div()
             .size_full()

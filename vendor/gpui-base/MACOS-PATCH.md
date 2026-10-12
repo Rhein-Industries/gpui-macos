@@ -6,7 +6,8 @@ for the local dependency graph; development examples are excluded.
 The modified Rust files carry prominent change notices as required by Apache
 2.0 section 4(b). They are `src/button.rs`, `src/popup.rs`, `src/lib.rs`,
 `src/positioner.rs`, `src/popover.rs`, `src/hover_card.rs`,
-`src/input/base/element.rs`, and `src/input/base/state.rs`. Popup-related
+`src/input/base/element.rs`, `src/input/base/state.rs`,
+`src/checkbox.rs`, `src/radio.rs`, and `src/switch.rs`. Popup-related
 changes add repeatable content factories, presenter callbacks, explicit
 viewport positioning, owner-window focus/command restoration, and
 keyboard/accessibility activation without duplicating pointer-down toggles.
@@ -37,3 +38,13 @@ button accessibility probe checks the flag together with label/role and the
 absence of a Click action. Pointer/keyboard tests still check that disabled
 buttons suppress their own and their parent's activation; these are headless
 tests, not injected OS accessibility actions.
+
+Checkbox, Radio, and Switch expose additive `child_with_state` factories with
+non-exhaustive `ControlState`. Children receive the final disabled flag at
+render, even when builders set it after adding children. `child_with_disabled`
+remains a bool adapter. `focus_visible` is reserved and false in this milestone;
+focus behavior is unchanged.
+
+`src/state_child.rs` is a new file authored by gpui-macos contributors in 2026
+under Apache-2.0; its notice identifies that authorship rather than attributing
+it to the upstream checkout.

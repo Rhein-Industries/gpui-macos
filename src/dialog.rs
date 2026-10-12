@@ -1,10 +1,11 @@
 //! Modal presentation built from gpui-base's dialog hosts and content slots.
 use crate::ActiveTheme;
+use crate::NativeTextStyle as _;
 use gpui_kit::base::{
     AlertDialog, Dialog, DialogBackdrop, DialogDescription, DialogPopup, DialogTitle,
 };
 use gpui_kit::rems;
-use gpui_kit::{App, FocusHandle, FontWeight, ParentElement, SharedString, Styled, rgb};
+use gpui_kit::{App, FocusHandle, ParentElement, SharedString, Styled, rgb};
 
 /// Supply a stable focus handle, focus it on opening, and restore trigger focus on close.
 /// Base owns the focus trap, Escape, confirmation and backdrop dismissal.
@@ -47,13 +48,12 @@ pub fn dialog_popup(cx: &App) -> DialogPopup {
         .shadow(t.popover_shadow())
         .text_color(t.foreground)
         .font_family(t.font.clone())
-        .text_size(rems(0.8125))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
 }
 
 pub fn dialog_title(title: impl Into<SharedString>, cx: &App) -> DialogTitle {
     DialogTitle::new()
-        .text_size(rems(1.))
-        .font_weight(FontWeight::SEMIBOLD)
+        .native_text_style(crate::TextStyle::ToolbarTitle, cx.macos())
         .text_color(cx.macos().foreground)
         .child(title.into())
 }

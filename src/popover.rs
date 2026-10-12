@@ -1,5 +1,6 @@
 //! Contextual controls in an anchored, non-modal surface.
 use crate::ActiveTheme;
+use crate::NativeTextStyle as _;
 use crate::motion::{POPUP_FADE, animated_duration, out_cubic};
 use gpui_kit::base::motion::Presence;
 use gpui_kit::base::{Popover, PopoverState};
@@ -84,7 +85,7 @@ pub fn popover_surface(cx: &App) -> Div {
         .shadow(t.popover_shadow())
         .text_color(t.foreground)
         .font_family(t.font.clone())
-        .text_size(rems(0.8125))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
 }
 
 /// Chrome for either an inline fallback or a real native popup window.

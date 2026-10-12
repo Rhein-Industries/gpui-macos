@@ -22,11 +22,23 @@ const KNOB_TRAVEL: f32 = TRACK_WIDTH - TRACK_INSET * 2. - THUMB_WIDTH;
 pub(crate) struct SwitchMotion {
     id: ElementId,
     checked: bool,
+    disabled: bool,
 }
 
 impl SwitchMotion {
     pub(crate) fn new(id: ElementId, checked: bool) -> Self {
-        Self { id, checked }
+        Self {
+            id,
+            checked,
+            disabled: false,
+        }
+    }
+
+    /// AppKit keeps a disabled on track tinted at reduced opacity and an off
+    /// track as a faint neutral well; the thumb stays opaque.
+    pub(crate) fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
     }
 }
 
@@ -38,10 +50,12 @@ impl RenderOnce for SwitchMotion {
         let fade = color(crate::motion::animated_duration(window, CONTROL_COLOR));
         let track_bg = transition(
             "macos-switch-track-bg",
-            if checked {
-                crate::controls::control_selection(&t, active)
-            } else {
-                crate::controls::unchecked_control_fill(&t, active)
+            match (checked, self.disabled) {
+                (true, false) => crate::controls::control_selection(&t, active),
+                (true, true) => crate::controls::control_selection(&t, active)
+                    .opacity(crate::tokens::DISABLED_SWITCH_OPACITY),
+                (false, false) => crate::controls::unchecked_control_fill(&t, active),
+                (false, true) => crate::tokens::disabled_switch_off(&t),
             },
             fade.clone(),
             window,

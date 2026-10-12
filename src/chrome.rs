@@ -3,6 +3,7 @@
 //! Sidebars host AppKit glass on macOS 26 and newer. Other compositions can
 //! opt in using [`native_material`]. [`material`] supplies a deterministic fill
 //! for canvas overlays and other platforms.
+use crate::NativeTextStyle as _;
 use crate::{ActiveTheme, Button, ButtonVariant, IconName, button, icon};
 use gpui_kit::{
     App, Div, ElementId, FontWeight, IntoElement, RenderOnce, SharedString, Stateful, Window,
@@ -34,7 +35,7 @@ pub fn material(kind: Material, cx: &App) -> Div {
         })
         .border_color(t.glass_border())
         .font_family(t.font.clone())
-        .text_size(rems(0.8125))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
         .text_color(t.foreground)
 }
 
@@ -68,7 +69,7 @@ pub fn toolbar(id: impl Into<ElementId>, cx: &App) -> Stateful<Div> {
         .px(rems(0.875))
         .py(rems(0.25))
         .font_family(t.font.clone())
-        .text_size(rems(0.8125))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
         .text_color(t.foreground)
         .flex_shrink_0()
 }
@@ -129,7 +130,7 @@ pub fn sidebar(id: impl Into<ElementId>, cx: &App) -> Stateful<Div> {
         .id(id.clone())
         .relative()
         .font_family(cx.macos().font.clone())
-        .text_size(rems(0.8125))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
         .text_color(cx.macos().foreground)
         .flex()
         .flex_col()
@@ -190,6 +191,11 @@ pub fn sidebar_item(
 ) -> Button {
     let t = cx.macos();
     let metrics = crate::native::sidebar_metrics();
+    let text_style = match metrics.label_size.as_f32().round() as u32 {
+        11 => crate::TextStyle::Subheadline,
+        15 => crate::TextStyle::Title3,
+        _ => crate::TextStyle::Body,
+    };
     let label = label.into();
     button(id, "", ButtonVariant::Secondary, cx)
         .accessibility_label(label.clone())
@@ -222,7 +228,7 @@ pub fn sidebar_item(
         })
         .w_full()
         .h(rems(metrics.row_height.as_f32() / 16.))
-        .text_size(rems(metrics.label_size.as_f32() / 16.))
+        .native_text_style(text_style, t)
         .px(rems(0.5))
         .py(rems(0.))
         .rounded(rems(0.5))
@@ -259,7 +265,7 @@ pub fn sidebar_section(title: impl Into<SharedString>, cx: &App) -> Div {
             .items_center()
             .h(rems(1.1875))
             .px(rems(0.375))
-            .text_size(rems(0.6875))
+            .native_text_style(crate::TextStyle::Subheadline, cx.macos())
             .font_weight(FontWeight::SEMIBOLD)
             .text_color(cx.macos().secondary)
             .child(title.into()),
@@ -281,7 +287,7 @@ pub fn title_bar(title: impl Into<SharedString>, cx: &App) -> Div {
         .gap(rems(0.625))
         .flex_shrink_0()
         .font_family(t.font.clone())
-        .text_size(rems(0.8125))
+        .native_text_style(crate::TextStyle::ToolbarTitle, cx.macos())
         .text_color(t.foreground)
         .font_weight(FontWeight::SEMIBOLD)
         .window_control_area(WindowControlArea::Drag)
@@ -304,7 +310,7 @@ pub fn status_bar(cx: &App) -> Div {
         .flex_shrink_0()
         .bg(t.background)
         .font_family(t.font.clone())
-        .text_size(rems(0.6875))
+        .native_text_style(crate::TextStyle::Subheadline, cx.macos())
         .text_color(t.secondary)
 }
 
@@ -335,7 +341,7 @@ pub fn settings_group(title: impl Into<SharedString>, cx: &App) -> Div {
         .overflow_hidden()
         .bg(t.normal_fill())
         .font_family(t.font.clone())
-        .text_size(rems(0.8125))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
         .text_color(t.foreground)
         .when(!title.is_empty(), |group| {
             group.child(
@@ -375,7 +381,7 @@ pub fn settings_row(
                 .when(!description.is_empty(), |labels| {
                     labels.child(
                         div()
-                            .text_size(rems(0.6875))
+                            .native_text_style(crate::TextStyle::Subheadline, cx.macos())
                             .text_color(cx.macos().secondary)
                             .child(description),
                     )

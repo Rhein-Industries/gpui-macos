@@ -1,4 +1,5 @@
 //! Dock presentation. Layout, reconciliation and drag operations stay in base.
+use crate::NativeTextStyle as _;
 use crate::{ActiveTheme, ButtonVariant, button};
 use gpui_kit::base::dock::*;
 use gpui_kit::rems;
@@ -21,7 +22,7 @@ impl DockAreaRenderer for MacosDock {
             .id("macos-dock")
             .bg(t.background)
             .font_family(t.font.clone())
-            .text_size(rems(0.8125))
+            .native_text_style(crate::TextStyle::Body, cx.macos())
             .text_color(t.foreground)
     }
     fn tab_group_renderer(&self) -> Rc<dyn TabGroupRenderer> {

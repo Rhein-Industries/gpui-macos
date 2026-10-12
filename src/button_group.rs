@@ -1,4 +1,5 @@
 //! Exclusive settings and page navigation with one keyboard stop per group.
+use crate::NativeTextStyle as _;
 use crate::{ActiveTheme, ChoiceItem};
 use gpui_kit::base::{
     Radio, RadioGroup, Tabs,
@@ -83,8 +84,7 @@ pub fn button_group(
                 .rounded(rems(0.3125))
                 .border_color(t.foreground.opacity(0.))
                 .font_family(t.font.clone())
-                .text_size(rems(0.8125))
-                .line_height(gpui_kit::relative(1.2))
+                .native_text_style(crate::TextStyle::Body, cx.macos())
                 .text_color(if window_active {
                     t.foreground
                 } else {
@@ -197,7 +197,7 @@ pub fn tab_list(
                     tab.child(
                         gpui_kit::div()
                             .self_start()
-                            .text_size(gpui_kit::rems(0.625))
+                            .native_text_style(crate::TextStyle::Footnote, cx.macos())
                             .child((index + 1).to_string()),
                     )
                 })

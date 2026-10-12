@@ -9,6 +9,7 @@
 //! mode adds a separate selection-material backdrop that changes the appearance
 //! of native glass layered above it.
 use crate::ActiveTheme;
+use crate::NativeTextStyle as _;
 use gpui_kit::{
     AnyElement, App, Context, Div, ElementId, Hsla, InteractiveElement, Interactivity, IntoElement,
     ParentElement, Pixels, RenderOnce, SharedString, Stateful, StatefulInteractiveElement,
@@ -132,7 +133,7 @@ pub fn native_glass(id: impl Into<ElementId>, cx: &App) -> NativeGlass {
             .rounded(rems(0.75))
             .border_color(t.glass_border())
             .font_family(t.font.clone())
-            .text_size(rems(0.8125))
+            .native_text_style(crate::TextStyle::Body, cx.macos())
             .text_color(t.foreground),
         id,
         clear: false,

@@ -1,3 +1,7 @@
+// Modified by gpui-macos contributors in 2026: render-time control state children.
+// Original: longbridge/gpui-kit 0bbd9870ce420af9feacbf948b21d3824d82dc0b.
+// Copyright 2024-2026 Longbridge; Apache-2.0. See LICENSE-APACHE and MACOS-PATCH.md.
+
 use std::rc::Rc;
 
 use gpui::{
@@ -26,7 +30,7 @@ pub struct Switch {
     semantic_styles: SwitchStyles,
     checked: bool,
     disabled: bool,
-    children: SmallVec<[AnyElement; 2]>,
+    children: SmallVec<[crate::state_child::StateChild; 2]>,
     on_change: Option<ChangeHandler>,
     accessibility_label: Option<SharedString>,
     tab_index: isize,
@@ -241,6 +245,25 @@ impl RenderOnce for SwitchThumb {
 }
 
 impl Switch {
+    /// Adds a child built with the final disabled state, so an indicator can
+    /// present disabled colors even when `disabled` is set after it is added.
+    pub fn child_with_disabled<E: IntoElement>(
+        self,
+        build: impl FnOnce(bool) -> E + 'static,
+    ) -> Self {
+        self.child_with_state(move |state| build(state.disabled))
+    }
+
+    /// Adds a child built with the final render-time control state.
+    /// `focus_visible` is currently false; focus producers are added separately.
+    pub fn child_with_state<E: IntoElement>(
+        mut self,
+        build: impl FnOnce(crate::ControlState) -> E + 'static,
+    ) -> Self {
+        self.children
+            .push(crate::state_child::StateChild::state(build));
+        self
+    }
     pub fn new(id: impl Into<ElementId>) -> Self {
         let id = id.into();
         Self {
@@ -340,7 +363,11 @@ impl Styled for Switch {
 
 impl ParentElement for Switch {
     fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
-        self.children.extend(elements);
+        self.children.extend(
+            elements
+                .into_iter()
+                .map(crate::state_child::StateChild::Ready),
+        );
     }
 }
 
@@ -390,7 +417,11 @@ impl RenderOnce for Switch {
                     })
                 },
             )
-            .children(self.children)
+            .children(
+                self.children
+                    .into_iter()
+                    .map(|child| child.resolve(disabled)),
+            )
             .refine_style(&style)
     }
 }

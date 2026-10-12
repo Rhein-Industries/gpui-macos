@@ -86,9 +86,9 @@ fn applying_theme_updates_base_tokens_and_geometry(cx: &mut TestAppContext) {
         assert_eq!(base.appearance, gpui_kit::base::ThemeAppearance::Light);
         for (radius, expected) in [
             (base.tokens.radius.none, 0.),
-            (base.tokens.radius.sm, 4.),
+            (base.tokens.radius.sm, 5.),
             (base.tokens.radius.md, 6.),
-            (base.tokens.radius.lg, 10.),
+            (base.tokens.radius.lg, 12.),
             (base.tokens.radius.xl, 16.),
             (base.tokens.radius.full, 9999.),
         ] {

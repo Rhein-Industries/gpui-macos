@@ -29,6 +29,9 @@ or a developer's original path. Manifest regeneration preserves this feature.
 
 Local behavioral changes in GPUI Base include:
 
+- Checkbox, Radio, and Switch render-time `ControlState` children via
+  `child_with_state`; `child_with_disabled` remains an adapter. Focus visibility
+  is reserved (currently false), with existing focus behavior preserved.
 - Disabled buttons report AccessKit's disabled flag on their existing node,
   while preserving their role, label and input/focus suppression.
 - Secure inputs accept a configurable mask character. Rendering, selection

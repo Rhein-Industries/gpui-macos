@@ -1,4 +1,5 @@
 //! Composable section navigation with gpui-base state and accessibility.
+use crate::NativeTextStyle as _;
 use crate::{ActiveTheme, ButtonVariant, button};
 use gpui_kit::base::{
     Accordion, AccordionPanel, AccordionTrigger, Pagination, PaginationItem, PaginationState,
@@ -36,7 +37,7 @@ pub fn accordion_trigger(
         .border_color(t.foreground.opacity(0.))
         .text_color(t.foreground)
         .font_family(t.font.clone())
-        .text_size(rems(0.8125))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
         .font_weight(FontWeight::MEDIUM)
         .hover(|s| s.bg(t.hover_fill()))
         .focus_visible(|s| s.border_color(t.accent))
@@ -53,7 +54,7 @@ pub fn accordion_panel(cx: &App) -> AccordionPanel {
     AccordionPanel::new()
         .px(rems(0.625))
         .py(rems(0.5))
-        .text_size(rems(0.8125))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
         .font_family(t.font.clone())
         .text_color(t.secondary)
 }
@@ -100,7 +101,7 @@ pub fn collapsible(open: bool, cx: &App) -> gpui_kit::base::Collapsible {
         .gap(rems(0.875))
         .w_full()
         .text_color(cx.macos().foreground)
-        .text_size(rems(0.8125))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
 }
 
 /// Stateful page navigation with the base push/pop/forward lifecycle.
@@ -117,6 +118,6 @@ pub fn nav_stack(
         .border_color(t.divider())
         .bg(t.surface)
         .font_family(t.font.clone())
-        .text_size(rems(0.8125))
+        .native_text_style(crate::TextStyle::Body, cx.macos())
         .text_color(t.foreground)
 }
