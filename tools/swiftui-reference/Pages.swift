@@ -109,7 +109,8 @@ private struct ButtonPage: View {
     @State private var count = 0
 
     private enum Variant: String, CaseIterable {
-        case primary = "Primary", outline = "Outline", secondary = "Secondary", danger = "Danger"
+        case primary = "Primary", outline = "Outline", secondary = "Secondary", danger = "Danger",
+            borderless = "Borderless"
         var key: String { rawValue.lowercased() }
     }
 
@@ -156,8 +157,8 @@ private struct ButtonPage: View {
     }
 
     /// Primary maps to the prominent (accent) style, Danger to a destructive
-    /// prominent button. AppKit has no outline push button, so Outline and
-    /// Secondary both use the standard bordered style.
+    /// prominent button and Borderless to `.borderless`. AppKit has no outline
+    /// push button, so Outline and Secondary both use the standard bordered style.
     @ViewBuilder
     private func styled(_ button: Button<Text>, _ variant: Variant) -> some View {
         switch variant {
@@ -167,6 +168,8 @@ private struct ButtonPage: View {
             button.buttonStyle(.bordered)
         case .danger:
             button.buttonStyle(.borderedProminent).tint(.red)
+        case .borderless:
+            button.buttonStyle(.borderless)
         }
     }
 }

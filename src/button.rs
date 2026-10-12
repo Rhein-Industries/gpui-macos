@@ -1,5 +1,6 @@
 //! Button presentation that suppresses transient styles while disabled.
 use crate::ActiveTheme as _;
+use crate::state::{PaintRole, Part, States, paint};
 use gpui_kit::base::motion::transition;
 use gpui_kit::base::{ButtonStyles, RoleOverride};
 use gpui_kit::{
@@ -24,7 +25,8 @@ pub struct Button {
     selected: bool,
     selected_fill: Option<Hsla>,
     inactive_style: Option<(Hsla, Hsla)>,
-    disabled_style: Option<(Hsla, Hsla)>,
+    paint_role: PaintRole,
+    role_default: Option<(Option<Hsla>, Option<Hsla>)>,
     fill_duration: Duration,
     focus: Option<FocusHandle>,
     on_hover: Option<HoverListener>,
@@ -50,7 +52,8 @@ impl Button {
             selected: false,
             selected_fill: None,
             inactive_style: None,
-            disabled_style: None,
+            paint_role: PaintRole::Custom,
+            role_default: None,
             fill_duration: crate::motion::CONTROL_COLOR,
             focus: None,
             on_hover: None,
@@ -73,18 +76,28 @@ impl Button {
         self
     }
 
-    /// A native filled bezel becomes neutral in an inactive window or when
-    /// disabled. This does not change its activation or disabled semantics.
-    pub(crate) fn inactive_style(mut self, fill: Hsla, foreground: Hsla) -> Self {
-        self.inactive_style = Some((fill, foreground));
+    /// The paint family resolved at render (spec §6.2). This is not the
+    /// accessibility role; see [`Button::role`].
+    pub(crate) fn paint_role(mut self, role: PaintRole) -> Self {
+        self.paint_role = role;
+        self.role_default = None;
         self
     }
 
-    /// A tinted bezel keeps a faded tint while disabled in an active window,
-    /// replacing the generic disabled opacity. Together with `inactive_style`,
-    /// an inactive disabled bezel uses native Bezel disabled paint (spec §6.2.3).
-    pub(crate) fn disabled_style(mut self, fill: Hsla, foreground: Hsla) -> Self {
-        self.disabled_style = Some((fill, foreground));
+    /// Records the current rest fill and label as the role's default. While
+    /// the fill is unchanged at render, the resolver paints every fill state;
+    /// the label is resolved too unless the caller set its own (plan D6).
+    pub(crate) fn record_role_default(mut self) -> Self {
+        let style = self.base.style();
+        self.role_default = Some((solid(style), style.text.color));
+        self
+    }
+
+    /// Custom paint for an inactive window or a disabled button. This is the
+    /// compatibility path for `sidebar_item` until it gets the Row role (M4).
+    /// It does not change activation or disabled semantics.
+    pub(crate) fn inactive_style(mut self, fill: Hsla, foreground: Hsla) -> Self {
+        self.inactive_style = Some((fill, foreground));
         self
     }
 
@@ -206,27 +219,38 @@ fn solid(style: &StyleRefinement) -> Option<Hsla> {
 
 impl RenderOnce for Button {
     fn render(mut self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let window_active = window.is_window_active();
-        if self.disabled
-            && !window_active
-            && self.disabled_style.is_some()
-            && self.inactive_style.is_some()
-        {
-            let (fill, foreground) = crate::tokens::disabled_bezel(cx.macos());
+        let states = States::in_window(window).disabled(self.disabled);
+        let window_active = states.window_active;
+        // Plan D6: the role owns the fill while the rest background is the
+        // role default; the label is resolved separately, so a caller
+        // `text_color` survives while the role still paints the bezel.
+        let default = self
+            .role_default
+            .filter(|_| self.paint_role != PaintRole::Custom);
+        let owns_fill = default.is_some_and(|(fill, _)| fill == solid(self.base.style()));
+        let owns_label =
+            owns_fill && default.is_some_and(|(_, label)| label == self.base.style().text.color);
+        if owns_fill {
+            let theme = cx.macos();
+            let role = self.paint_role;
+            let pressed = states.pressed(true);
             self.base = self
                 .base
-                .bg(fill)
-                .text_color(foreground)
+                .bg(paint(role, Part::Fill, states, theme))
                 .styles(|s| s.disabled(|s| s.opacity(1.)));
-        } else if self.disabled
-            && window_active
-            && let Some((fill, foreground)) = self.disabled_style
-        {
-            self.base = self
-                .base
-                .bg(fill)
-                .text_color(foreground)
-                .styles(|s| s.disabled(|s| s.opacity(1.)));
+            let mut active = self.active.take().map(|style| *style).unwrap_or_default();
+            if active.background.is_none() {
+                active.background = Some(paint(role, Part::Fill, pressed, theme).into());
+            }
+            if owns_label {
+                self.base = self
+                    .base
+                    .text_color(paint(role, Part::Label, states, theme));
+                if active.text.color.is_none() {
+                    active.text.color = Some(paint(role, Part::Label, pressed, theme));
+                }
+            }
+            self.active = Some(Box::new(active));
         } else if (!window_active || self.disabled)
             && let Some((fill, foreground)) = self.inactive_style
         {
@@ -405,7 +429,10 @@ mod tests {
         redraw(cx);
         let (rest, hover) = cx.update(|_, cx| {
             let t = cx.macos();
-            (t.control_fill(), t.control_fill().blend(t.hover_fill()))
+            (
+                t.bezel_fill(),
+                crate::state::over(t.bezel_fill(), t.hover_fill()),
+            )
         });
         assert_eq!(fill("fill"), rest);
 
@@ -428,6 +455,70 @@ mod tests {
             .advance_clock(crate::motion::CONTROL_COLOR * 2);
         redraw(cx);
         assert_eq!(fill("fill"), rest);
+    }
+
+    #[gpui_kit::test]
+    fn pressed_fill_follows_the_paint_role(cx: &mut TestAppContext) {
+        use crate::state::{PaintRole, Part, States, Tint, paint};
+        cx.update(|cx| {
+            crate::init(cx);
+            cx.set_reduce_motion(true);
+        });
+        struct Harness;
+        impl Render for Harness {
+            fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+                div().size(rems(25.)).flex().flex_col().children(
+                    [
+                        ("press-bezel", crate::ButtonVariant::Secondary),
+                        ("press-prominent", crate::ButtonVariant::Primary),
+                    ]
+                    .map(|(id, variant)| {
+                        crate::button(id, "Apply", variant, cx)
+                            .w(rems(6.25))
+                            .h(rems(2.5))
+                            .debug_selector(move || id.into())
+                    }),
+                )
+            }
+        }
+        let (view, cx) = cx.add_window_view(|_, _| Harness);
+        for theme in [crate::Theme::light(), crate::Theme::dark()] {
+            cx.update(|window, cx| {
+                theme.clone().apply(cx);
+                window.activate_window();
+            });
+            cx.run_until_parked();
+            for (id, role) in [
+                ("press-bezel", PaintRole::Bezel),
+                ("press-prominent", PaintRole::Prominent(Tint::Accent)),
+            ] {
+                let redraw = |cx: &mut gpui_kit::VisualTestContext| {
+                    view.update(cx, |_, cx| cx.notify());
+                    cx.update(|window, cx| window.draw(cx).clear(cx));
+                };
+                redraw(cx);
+                let center = cx.debug_bounds(id).unwrap().center();
+                cx.simulate_mouse_move(center, None, Modifiers::default());
+                cx.simulate_mouse_down(center, MouseButton::Left, Modifiers::default());
+                redraw(cx);
+                let pressed = paint(role, Part::Fill, States::active().pressed(true), &theme);
+                assert_eq!(fill(id), pressed, "{id} pressed (spec 6.6)");
+                cx.simulate_mouse_up(center, MouseButton::Left, Modifiers::default());
+                cx.simulate_mouse_move(point(px(390.), px(390.)), None, Modifiers::default());
+                redraw(cx);
+                assert_eq!(fill(id), paint(role, Part::Fill, States::active(), &theme));
+            }
+            let expected = if theme.is_dark() { 0x2d87ff } else { 0x036ee6 };
+            assert_eq!(
+                paint(
+                    PaintRole::Prominent(Tint::Accent),
+                    Part::Fill,
+                    States::active().pressed(true),
+                    &theme
+                ),
+                gpui_kit::rgb(expected).into()
+            );
+        }
     }
 
     #[gpui_kit::test]

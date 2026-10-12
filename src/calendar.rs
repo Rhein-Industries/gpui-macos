@@ -90,8 +90,14 @@ pub fn calendar(id: impl Into<ElementId>, state: &Entity<CalendarState>, cx: &Ap
                     item.role(Role::Button)
                         .when(!state.is_disabled(), |item| item.focusable())
                 })
+                // ControlLabel, spec §6.2.10: disabled text uses tertiary ink.
                 .when(state.is_disabled() && interactive, |item| {
-                    item.opacity(0.45)
+                    item.text_color(crate::state::paint(
+                        crate::state::PaintRole::ControlLabel,
+                        crate::state::Part::Label,
+                        crate::state::States::active().disabled(true),
+                        &t,
+                    ))
                 })
                 .when(!state.is_disabled() && interactive, |item| {
                     item.cursor_pointer()

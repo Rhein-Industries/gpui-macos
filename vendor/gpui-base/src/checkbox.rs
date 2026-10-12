@@ -393,10 +393,18 @@ impl RenderOnce for Checkbox {
         let focus_handle = self.focus_handle(window, cx);
         let disabled = self.disabled;
         let next_state = self.state.activated();
+        let press = crate::state_child::press_state(&self.id, disabled, window, cx);
+        let pressed = *press.read(cx);
+        let control_state =
+            crate::ControlState::new(disabled, self.state != CheckboxState::Unchecked)
+                .with_pressed(pressed);
         let style = self.resolved_style();
         let on_change = self.on_change;
 
         self.base
+            .when(!disabled, |this| {
+                crate::state_child::track_press(this, &press)
+            })
             .test_support()
             .when_some(self.role.resolve(|| Role::CheckBox), |this, role| {
                 this.role(role)
@@ -423,7 +431,7 @@ impl RenderOnce for Checkbox {
             .children(
                 self.children
                     .into_iter()
-                    .map(|child| child.resolve(disabled)),
+                    .map(|child| child.resolve(control_state)),
             )
             .refine_style(&style)
     }
@@ -611,6 +619,133 @@ mod tests {
         seen.borrow_mut().clear();
         cx.update(|window, cx| window.draw(cx).clear(cx));
         assert_eq!(&*seen.borrow(), &[false, true]);
+    }
+
+    #[gpui::test]
+    fn state_children_see_left_button_presses_without_the_group_slot(cx: &mut TestAppContext) {
+        struct View {
+            seen: Rc<RefCell<Vec<(usize, bool)>>>,
+            disabled: bool,
+        }
+        impl Render for View {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                let record = |index: usize, seen: &Rc<RefCell<Vec<(usize, bool)>>>| {
+                    let seen = seen.clone();
+                    move |state: crate::ControlState| {
+                        seen.borrow_mut().push((index, state.pressed));
+                        div().size_full()
+                    }
+                };
+                let disabled = self.disabled;
+                div()
+                    .flex()
+                    .child(
+                        // The caller's own group must not disconnect press state.
+                        Checkbox::new("press-checkbox")
+                            .group("caller-row")
+                            .size(px(40.))
+                            .child_with_state(record(0, &self.seen))
+                            .disabled(disabled),
+                    )
+                    .child(
+                        crate::Radio::new("press-radio")
+                            .size(px(40.))
+                            .child_with_state(record(1, &self.seen)),
+                    )
+                    .child(
+                        crate::Switch::new("press-switch")
+                            .size(px(40.))
+                            .child_with_state(record(2, &self.seen)),
+                    )
+            }
+        }
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let view_seen = seen.clone();
+        let (view, cx) = cx.add_window_view(move |_, _| View {
+            seen: view_seen,
+            disabled: false,
+        });
+        // Presses only register in an active window.
+        cx.update(|window, _| window.activate_window());
+        cx.run_until_parked();
+        let pressed = |cx: &mut VisualTestContext, index: usize| {
+            seen.borrow_mut().clear();
+            cx.update(|window, cx| {
+                window.refresh();
+                window.draw(cx).clear(cx)
+            });
+            seen.borrow()
+                .iter()
+                .rev()
+                .find(|(i, _)| *i == index)
+                .map(|(_, pressed)| *pressed)
+                .unwrap()
+        };
+        for (index, x) in [(0, 20.), (1, 60.), (2, 100.)] {
+            let at = point(px(x), px(20.));
+            cx.simulate_mouse_down(at, gpui::MouseButton::Right, Modifiers::default());
+            assert!(!pressed(cx, index), "{index}: right button is not a press");
+            cx.simulate_mouse_up(at, gpui::MouseButton::Right, Modifiers::default());
+            cx.simulate_mouse_down(at, gpui::MouseButton::Left, Modifiers::default());
+            assert!(pressed(cx, index), "{index}: left button press");
+            cx.simulate_mouse_up(at, gpui::MouseButton::Left, Modifiers::default());
+            assert!(!pressed(cx, index), "{index}: released");
+        }
+        view.update(cx, |view, cx| {
+            view.disabled = true;
+            cx.notify();
+        });
+        let at = point(px(20.), px(20.));
+        cx.simulate_mouse_down(at, gpui::MouseButton::Left, Modifiers::default());
+        assert!(!pressed(cx, 0), "disabled controls never report a press");
+    }
+
+    #[gpui::test]
+    fn presses_clear_after_stopped_clicks_and_window_deactivation(cx: &mut TestAppContext) {
+        struct View(Rc<Cell<bool>>);
+        impl Render for View {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                let seen = self.0.clone();
+                Checkbox::new("stopping")
+                    .size(px(40.))
+                    .child_with_state(move |state| {
+                        seen.set(state.pressed);
+                        div().size_full()
+                    })
+                    // A caller that stops propagation must not leave it pressed.
+                    .on_change(|_, _, _, cx| cx.stop_propagation())
+            }
+        }
+        let seen = Rc::new(Cell::new(false));
+        let view_seen = seen.clone();
+        let (_, cx) = cx.add_window_view(move |_, _| View(view_seen));
+        cx.update(|window, _| window.activate_window());
+        cx.run_until_parked();
+        let pressed = |cx: &mut VisualTestContext| {
+            cx.update(|window, cx| {
+                window.refresh();
+                window.draw(cx).clear(cx)
+            });
+            seen.get()
+        };
+        let at = point(px(20.), px(20.));
+        pressed(cx);
+        cx.simulate_mouse_down(at, gpui::MouseButton::Left, Modifiers::default());
+        assert!(pressed(cx));
+        cx.simulate_mouse_up(at, gpui::MouseButton::Left, Modifiers::default());
+        assert!(
+            !pressed(cx),
+            "released despite stop_propagation in on_change"
+        );
+
+        cx.simulate_mouse_down(at, gpui::MouseButton::Left, Modifiers::default());
+        assert!(pressed(cx));
+        // The window resigns mid-press; the mouse-up is never delivered.
+        cx.deactivate_window();
+        assert!(!pressed(cx), "an inactive window cancels the press");
+        cx.update(|window, _| window.activate_window());
+        cx.run_until_parked();
+        assert!(!pressed(cx), "reactivation does not restore the press");
     }
 
     #[gpui::test]

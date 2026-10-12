@@ -318,6 +318,7 @@ pub fn menu(
                     let select = on_select.clone();
                     let shortcut = item.render_shortcut(window, cx);
                     let row = button(("menu-item", index), "", ButtonVariant::Secondary, cx)
+                        .paint_role(crate::state::PaintRole::Custom)
                         .debug_selector(move || format!("macos-menu-item-{index}"))
                         .accessibility_label(item.label.clone())
                         .role(gpui_kit::Role::MenuItem)
@@ -632,6 +633,7 @@ fn submenu_panel(
             let select = select.clone();
             let disabled = item.disabled;
             button(("submenu-item", index), "", ButtonVariant::Secondary, cx)
+                .paint_role(crate::state::PaintRole::Custom)
                 .debug_selector(move || format!("macos-submenu-item-{index}"))
                 .accessibility_label(item.label.clone())
                 .role(gpui_kit::Role::MenuItem)

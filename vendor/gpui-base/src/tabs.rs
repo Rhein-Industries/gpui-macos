@@ -1,3 +1,7 @@
+// Modified by gpui-macos contributors in 2026: render-time control state children and default styles.
+// Original: longbridge/gpui-kit 0bbd9870ce420af9feacbf948b21d3824d82dc0b.
+// Copyright 2024-2026 Longbridge; Apache-2.0. See LICENSE-APACHE and MACOS-PATCH.md.
+
 use std::rc::Rc;
 
 use gpui::{
@@ -27,11 +31,13 @@ pub struct Tab {
     semantic_styles: TabStyles,
     selected: bool,
     disabled: bool,
-    children: SmallVec<[AnyElement; 2]>,
+    children: SmallVec<[crate::state_child::StateChild; 2]>,
     on_click: Option<ClickHandler>,
     accessibility_label: Option<SharedString>,
     position_in_set: Option<usize>,
     size_of_set: Option<usize>,
+    default_styles: Option<crate::state_child::DefaultStyles>,
+    interaction: crate::state_child::CallerInteraction,
 }
 
 impl Tab {
@@ -48,7 +54,21 @@ impl Tab {
             accessibility_label: None,
             position_in_set: None,
             size_of_set: None,
+            default_styles: None,
+            interaction: Default::default(),
         }
+    }
+
+    /// Supplies render-time default styles from the final control state.
+    /// `checked` is the final selected value. Caller styles, including
+    /// semantic `styles`, `hover` and `active`, take precedence; default hover
+    /// and active styles are dropped while disabled.
+    pub fn default_styles(
+        mut self,
+        build: impl FnOnce(crate::ControlState, &mut Window, &mut App) -> crate::StateStyles + 'static,
+    ) -> Self {
+        self.default_styles = Some(Box::new(build));
+        self
     }
 
     /// Updates the element identity used when the tab is rendered.
@@ -64,6 +84,26 @@ impl Tab {
 
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
+        self
+    }
+
+    /// Adds a child built with the final disabled state, so it can present
+    /// disabled colors even when `disabled` is set after it is added.
+    pub fn child_with_disabled<E: IntoElement>(
+        self,
+        build: impl FnOnce(bool) -> E + 'static,
+    ) -> Self {
+        self.child_with_state(move |state| build(state.disabled))
+    }
+
+    /// Adds a child built with the final render-time control state.
+    /// `focus_visible` is currently false; focus producers are added separately.
+    pub fn child_with_state<E: IntoElement>(
+        mut self,
+        build: impl FnOnce(crate::ControlState) -> E + 'static,
+    ) -> Self {
+        self.children
+            .push(crate::state_child::StateChild::state(build));
         self
     }
 
@@ -134,7 +174,11 @@ impl Styled for Tab {
 
 impl ParentElement for Tab {
     fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
-        self.children.extend(elements);
+        self.children.extend(
+            elements
+                .into_iter()
+                .map(crate::state_child::StateChild::Ready),
+        );
     }
 }
 
@@ -142,14 +186,34 @@ impl InteractiveElement for Tab {
     fn interactivity(&mut self) -> &mut Interactivity {
         self.base.interactivity()
     }
+
+    /// Captured so render-time default styles can sit beneath it.
+    fn hover(mut self, f: impl FnOnce(StyleRefinement) -> StyleRefinement) -> Self {
+        self.interaction.hover = Some(f(StyleRefinement::default()));
+        self
+    }
 }
 
-impl StatefulInteractiveElement for Tab {}
+impl StatefulInteractiveElement for Tab {
+    /// Captured so render-time default styles can sit beneath it.
+    fn active(mut self, f: impl FnOnce(StyleRefinement) -> StyleRefinement) -> Self {
+        self.interaction.active = Some(f(StyleRefinement::default()));
+        self
+    }
+}
 
 impl RenderOnce for Tab {
-    fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
+    fn render(mut self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let disabled = self.disabled;
-        let style = self.resolved_style();
+        let control_state = crate::ControlState::new(disabled, self.selected);
+        let styles = crate::state_child::resolve_styles(
+            self.default_styles.take(),
+            control_state,
+            self.resolved_style(),
+            std::mem::take(&mut self.interaction),
+            window,
+            cx,
+        );
 
         self.base
             .id(self.id)
@@ -177,8 +241,14 @@ impl RenderOnce for Tab {
                     this.on_click(move |event, window, cx| on_click(event, window, cx))
                 },
             )
-            .children(self.children)
-            .refine_style(&style)
+            .when_some(styles.hover, |this, style| this.hover(move |_| style))
+            .when_some(styles.active, |this, style| this.active(move |_| style))
+            .children(
+                self.children
+                    .into_iter()
+                    .map(|child| child.resolve(control_state)),
+            )
+            .refine_style(&styles.base)
     }
 }
 
@@ -285,6 +355,68 @@ mod tests {
         let (cx, clicks) = harness(cx, true);
         cx.simulate_click(point(px(10.), px(10.)), Modifiers::default());
         assert_eq!(clicks.get(), 0);
+    }
+
+    #[gpui::test]
+    fn state_children_receive_the_final_state(cx: &mut gpui::TestAppContext) {
+        use std::cell::RefCell;
+        struct View(Rc<RefCell<Vec<crate::ControlState>>>);
+        impl Render for View {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                let seen = self.0.clone();
+                Tabs::new("tabs").children([false, true].map(|disabled| {
+                    let state = seen.clone();
+                    let flag = seen.clone();
+                    Tab::new(("tab-state", disabled as usize))
+                        .child_with_state(move |control| {
+                            state.borrow_mut().push(control);
+                            div()
+                        })
+                        .child_with_disabled(move |disabled| {
+                            flag.borrow_mut()
+                                .push(crate::ControlState::new(disabled, false));
+                            div()
+                        })
+                        .child("Label")
+                        // Set after the children were added.
+                        .disabled(disabled)
+                }))
+            }
+        }
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let view_seen = seen.clone();
+        let (_, cx) = cx.add_window_view(move |_, _| View(view_seen));
+        seen.borrow_mut().clear();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let seen = seen.borrow();
+        assert_eq!(
+            seen.iter().map(|s| s.disabled).collect::<Vec<_>>(),
+            [false, false, true, true]
+        );
+        assert!(!seen[0].focus_visible && !seen[2].focus_visible);
+    }
+
+    #[gpui::test]
+    fn default_styles_see_the_final_selected_value(cx: &mut gpui::TestAppContext) {
+        use std::cell::RefCell;
+        struct View(Rc<RefCell<Vec<crate::ControlState>>>);
+        impl Render for View {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                let seen = self.0.clone();
+                Tab::new("final-value")
+                    .default_styles(move |state, _, _| {
+                        seen.borrow_mut().push(state);
+                        crate::StateStyles::default()
+                    })
+                    .selected(true)
+            }
+        }
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let view_seen = seen.clone();
+        let (_, cx) = cx.add_window_view(move |_, _| View(view_seen));
+        seen.borrow_mut().clear();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert_eq!(&*seen.borrow(), &[crate::ControlState::new(false, true)]);
     }
 
     #[gpui::test]

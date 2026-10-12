@@ -1842,7 +1842,26 @@ pub fn questionnaire_choice(
                 definition.description().cloned(),
             )
         });
+    // Kit fades a whole disabled row to 50%; the macOS row instead uses the
+    // ControlLabel and Check disabled parts (spec §6.2.6, §6.2.10).
+    let disabled = state
+        .read(cx)
+        .choice_state(&item, &value)
+        .is_some_and(|choice| choice.is_disabled());
+    let label_color = crate::state::paint(
+        crate::state::PaintRole::ControlLabel,
+        crate::state::Part::Label,
+        crate::state::States::active().disabled(disabled),
+        cx.macos(),
+    );
+    let description_color = if disabled {
+        label_color
+    } else {
+        cx.macos().secondary
+    };
     kit::questionnaire::QuestionnaireChoice::new(state, item, value)
+        // Overrides Kit's disabled row opacity; enabled rows are already opaque.
+        .opacity(1.)
         // Kit uses this scale for a 16-point indicator on a 24-point answer
         // line. The named label below keeps the native 13-point typography.
         .with_size(kit::Size::Size(gpui_kit::px(16.)))
@@ -1866,19 +1885,24 @@ pub fn questionnaire_choice(
                     div()
                         .native_text_style(crate::TextStyle::Body, cx.macos())
                         .line_height(rems(1.5))
+                        .text_color(label_color)
                         .child(label),
                 )
                 .children(description.map(|description| {
                     div()
                         .native_text_style(crate::TextStyle::Subheadline, cx.macos())
                         .line_height(rems(1.))
-                        .text_color(cx.macos().secondary)
+                        .text_color(description_color)
                         .child(description)
                 }))
         }))
         .render_indicator(move |choice, window, cx| {
-            let t = cx.macos();
-            let active = window.is_window_active();
+            // CheckOn / CheckOff, spec §6.2.6.
+            let (well, mark) = crate::controls::check_paint(
+                cx.macos(),
+                crate::state::States::in_window(window).disabled(choice.is_disabled()),
+                choice.is_selected(),
+            );
             div()
                 .debug_selector({
                     let selector = selector.clone();
@@ -1887,11 +1911,7 @@ pub fn questionnaire_choice(
                 .size(rems(1.))
                 .flex_shrink_0()
                 .rounded(rems(if multiple { 0.25 } else { 0.5 }))
-                .bg(if choice.is_selected() {
-                    crate::controls::control_selection(t, active)
-                } else {
-                    crate::controls::unchecked_control_fill(t, active)
-                })
+                .bg(well)
                 .flex()
                 .items_center()
                 .justify_center()
@@ -1899,13 +1919,13 @@ pub fn questionnaire_choice(
                     if multiple {
                         crate::icon(crate::IconName::Check)
                             .size(rems(0.875))
-                            .text_color(crate::controls::control_mark(t, active))
+                            .text_color(mark)
                             .into_any_element()
                     } else {
                         div()
                             .size(rems(0.25))
                             .rounded_full()
-                            .bg(crate::controls::control_mark(t, active))
+                            .bg(mark)
                             .into_any_element()
                     }
                 }))
@@ -2162,6 +2182,109 @@ mod tests {
                 questionnaire_actions(&self.state, cx)
                     .children(questionnaire_skip(&self.state, cx)),
             )
+        }
+    }
+
+    #[gpui_kit::test]
+    fn disabled_choices_use_check_disabled_parts_instead_of_row_opacity(cx: &mut TestAppContext) {
+        use kit::questionnaire::{
+            QuestionnaireChoiceDefinition, QuestionnaireItemDefinition, QuestionnaireState,
+        };
+        struct DisabledChoice {
+            state: Entity<QuestionnaireState>,
+        }
+        impl Render for DisabledChoice {
+            fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+                // The underline paints in the label ink.
+                questionnaire_choice(&self.state, "plan", "team", cx).underline()
+            }
+        }
+        cx.update(crate::init);
+        let (view, cx) = cx.add_window_view(|_, cx| DisabledChoice {
+            state: cx.new(|cx| {
+                QuestionnaireState::new(
+                    vec![
+                        QuestionnaireItemDefinition::new("plan", "Plan").with_choices([
+                            QuestionnaireChoiceDefinition::new("team", "Team")
+                                .with_default_selected(true),
+                            QuestionnaireChoiceDefinition::new("solo", "Solo"),
+                        ]),
+                    ],
+                    cx,
+                )
+                .unwrap()
+            }),
+        });
+        // Selected while enabled, then disabled: CheckOn disabled.
+        cx.update(|_, cx| {
+            view.read(cx).state.clone().update(cx, |state, cx| {
+                state.set_choice_disabled("plan", "team", true, cx).unwrap()
+            })
+        });
+        let id = cx.update(|_, cx| view.read(cx).state.entity_id());
+        let selector: &'static str = format!("mac-questionnaire-{id}-plan-team").leak();
+        for active in [true, false] {
+            if active {
+                cx.update(|window, _| window.activate_window());
+                cx.run_until_parked();
+            } else {
+                cx.deactivate_window();
+            }
+            cx.update(|window, cx| {
+                view.update(cx, |_, cx| cx.notify());
+                window.draw(cx).clear(cx);
+            });
+            let indicator = cx.debug_bounds(selector).unwrap();
+            cx.update(|window, cx| {
+                let choice = view
+                    .read(cx)
+                    .state
+                    .read(cx)
+                    .choice_state("plan", "team")
+                    .unwrap();
+                assert!(choice.is_selected() && choice.is_disabled());
+                let states = crate::state::States::in_window(window).disabled(true);
+                let (well, mark) = crate::controls::check_paint(cx.macos(), states, true);
+                assert_eq!(
+                    well,
+                    crate::state::paint(
+                        crate::state::PaintRole::CheckOn,
+                        crate::state::Part::Fill,
+                        states,
+                        cx.macos()
+                    )
+                );
+                let scale = window.scale_factor();
+                let quads = window.painted_quads();
+                let fill_at = |bounds: gpui_kit::Bounds<gpui_kit::Pixels>| {
+                    quads
+                        .iter()
+                        .find(|quad| quad.bounds == bounds.scale(scale))
+                        .and_then(|quad| quad.background.as_solid())
+                };
+                // The CheckOn disabled well, not the row's 50% opacity over it.
+                assert_eq!(fill_at(indicator), Some(well), "well, active {active}");
+                let dot = quads
+                    .iter()
+                    .find(|quad| {
+                        quad.bounds.center() == indicator.center().scale(scale)
+                            && quad.bounds.size == gpui_kit::size(px(4.), px(4.)).scale(scale)
+                    })
+                    .and_then(|quad| quad.background.as_solid());
+                assert_eq!(dot, Some(mark), "mark, active {active}");
+                let label = window
+                    .painted_underlines()
+                    .into_iter()
+                    .map(|line| line.color)
+                    .collect::<Vec<_>>();
+                assert!(!label.is_empty());
+                assert!(
+                    label
+                        .iter()
+                        .all(|color| *color == cx.macos().tertiary_label()),
+                    "disabled label uses tertiary ink, active {active}"
+                );
+            });
         }
     }
 

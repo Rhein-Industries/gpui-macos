@@ -36,7 +36,15 @@ pub fn tree(state: &Entity<TreeState>, cx: &App) -> Tree {
                 } else {
                     t.foreground.opacity(0.)
                 })
-                .when(entry.is_disabled(), |row| row.opacity(0.45))
+                // ControlLabel, spec §6.2.10: disabled text uses tertiary ink.
+                .when(entry.is_disabled(), |row| {
+                    row.text_color(crate::state::paint(
+                        crate::state::PaintRole::ControlLabel,
+                        crate::state::Part::Label,
+                        crate::state::States::active().disabled(true),
+                        &t,
+                    ))
+                })
                 .when(!entry.is_disabled() && !state.is_selected(), |row| {
                     row.hover(|s| s.bg(t.hover_fill()))
                 })

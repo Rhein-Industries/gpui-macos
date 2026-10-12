@@ -1,5 +1,6 @@
 //! Exclusive settings and page navigation with one keyboard stop per group.
 use crate::NativeTextStyle as _;
+use crate::state::{PaintRole, Part, paint};
 use crate::{ActiveTheme, ChoiceItem};
 use gpui_kit::base::{
     Radio, RadioGroup, Tabs,
@@ -54,7 +55,9 @@ pub fn button_group(
         }
     });
     let t = cx.macos().clone();
-    let window_active = window.is_window_active();
+    // Segmented, spec §6.2.5 (C6), resolved here because the group has a window.
+    let states = crate::state::States::in_window(window);
+    let window_active = states.window_active;
     let count = items.len();
     let rows = items
         .iter()
@@ -63,6 +66,12 @@ pub fn button_group(
             let change = on_change.clone();
             let pointer_cursor = cursor.clone();
             let focus = cursor.read(cx).focus.clone();
+            let role_selected = selected == Some(index);
+            let role = PaintRole::Segment {
+                selected: role_selected,
+            };
+            let item_states = states.disabled(item.disabled);
+            let segment = |part| paint(role, part, item_states, &t);
             Radio::new(index)
                 .debug_selector(move || format!("macos-option-{index}"))
                 .checked(selected == Some(index))
@@ -85,33 +94,23 @@ pub fn button_group(
                 .border_color(t.foreground.opacity(0.))
                 .font_family(t.font.clone())
                 .native_text_style(crate::TextStyle::Body, cx.macos())
-                .text_color(if window_active {
-                    t.foreground
-                } else {
-                    t.secondary
-                })
-                .bg(if selected == Some(index) {
-                    if t.is_dark() {
-                        t.control_fill().blend(t.foreground.opacity(0.16))
-                    } else if window_active {
-                        t.surface
-                    } else {
-                        crate::controls::control_selection(&t, false)
-                    }
-                } else {
-                    t.foreground.opacity(0.)
-                })
+                .text_color(segment(Part::Label))
+                .bg(segment(Part::Fill))
                 .when(
                     window_active
                         && focus.is_focused(window)
                         && cursor.read(cx).index == Some(index),
                     |row| row.border_color(t.accent).shadow(t.focus_shadow()),
                 )
-                .when(window_active && !item.disabled, |row| {
+                // The accent selection is not replaced by the hover overlay;
+                // pressing an unselected segment turns it accent (§6.2.5 P).
+                .when(window_active && !item.disabled && !role_selected, |row| {
+                    let pressed = item_states.pressed(true);
+                    let pressed_fill = paint(role, Part::Fill, pressed, &t);
+                    let pressed_label = paint(role, Part::Label, pressed, &t);
                     row.hover(|row| row.bg(t.hover_fill()))
-                        .active(|row| row.bg(t.pressed_fill()))
+                        .active(move |row| row.bg(pressed_fill).text_color(pressed_label))
                 })
-                .styles(|styles| styles.disabled(|row| row.opacity(0.45)))
                 .child(item.label.clone())
                 .when(
                     index > 0 && selected != Some(index) && selected != Some(index - 1),
@@ -154,7 +153,12 @@ pub fn button_group(
             .gap(rems(0.125))
             .p(rems(0.0625))
             .rounded(rems(0.375))
-            .bg(t.control_fill())
+            .bg(paint(
+                PaintRole::Segment { selected: false },
+                Part::Track,
+                states,
+                &t,
+            ))
             .children(rows),
         cursor,
         items,
@@ -365,6 +369,56 @@ mod tests {
             assert!((general.size.height.as_f32() - 22. * zoom).abs() <= 0.5);
         }
     }
+    #[gpui_kit::test]
+    fn pressing_an_unselected_segment_turns_it_accent(cx: &mut TestAppContext) {
+        struct Segments;
+        impl Render for Segments {
+            fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+                button_group(
+                    "pressed-segments",
+                    vec![
+                        ChoiceItem::new("general", "General"),
+                        ChoiceItem::new("network", "Network"),
+                    ],
+                    Some(0),
+                    |_, _, _| {},
+                    window,
+                    cx,
+                )
+                .w(rems(13.))
+            }
+        }
+        cx.update(crate::init);
+        let (view, cx) = cx.add_window_view(|_, _| Segments);
+        cx.update(|window, _| window.activate_window());
+        cx.run_until_parked();
+        let redraw = |cx: &mut gpui_kit::VisualTestContext| {
+            view.update(cx, |_, cx| cx.notify());
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+        };
+        redraw(cx);
+        let fill = |cx: &mut gpui_kit::VisualTestContext, selector: &'static str| {
+            let bounds = cx.debug_bounds(selector).unwrap();
+            cx.update(|window, _| {
+                let bounds = bounds.scale(window.scale_factor());
+                window
+                    .painted_quads()
+                    .into_iter()
+                    .filter(|quad| quad.bounds == bounds)
+                    .filter_map(|quad| quad.background.as_solid())
+                    // Focus-ring quads that follow share the bounds but no fill.
+                    .find(|fill| fill.a > 0.)
+            })
+        };
+        let accent = cx.update(|_, cx| cx.macos().indicator_accent());
+        assert_eq!(fill(cx, "macos-option-0"), Some(accent));
+        let point = cx.debug_bounds("macos-option-1").unwrap().center();
+        cx.simulate_mouse_move(point, None, Default::default());
+        cx.simulate_mouse_down(point, gpui_kit::MouseButton::Left, Default::default());
+        redraw(cx);
+        assert_eq!(fill(cx, "macos-option-1"), Some(accent), "spec 6.2.5 P");
+    }
+
     struct Harness {
         tab_list: bool,
         selected: usize,

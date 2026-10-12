@@ -295,6 +295,13 @@ impl Theme {
         if KitTheme::global(cx).mode != mode {
             KitTheme::change(mode, None, cx);
         }
+        // Kit state colors follow the same role rules (spec §6.2).
+        use crate::state::{PaintRole, Part, States, Tint, paint};
+        let rest = States::active();
+        let pressed = rest.pressed(true);
+        let role = |role, part, states| paint(role, part, states, self);
+        let bezel = role(PaintRole::Bezel, Part::Fill, rest);
+        let bezel_pressed = role(PaintRole::Bezel, Part::Fill, pressed);
         KitTheme::update(cx, |kit| {
             kit.font_family = self.font.clone();
             kit.mono_font_family = self.mono_font.clone();
@@ -315,15 +322,15 @@ impl Theme {
             c.primary = self.accent;
             c.primary_foreground = self.on_accent;
             c.primary_hover = self.accent.opacity(0.85);
-            c.primary_active = self.accent.opacity(0.7);
-            c.secondary = self.control_fill();
+            c.primary_active = role(PaintRole::Prominent(Tint::Accent), Part::Fill, pressed);
+            c.secondary = bezel;
             c.secondary_foreground = self.foreground;
-            c.secondary_hover = self.hover_fill();
-            c.secondary_active = self.pressed_fill();
-            c.button = self.control_fill();
+            c.secondary_hover = crate::state::over(bezel, self.hover_fill());
+            c.secondary_active = bezel_pressed;
+            c.button = bezel;
             c.button_foreground = self.foreground;
-            c.button_hover = self.hover_fill();
-            c.button_active = self.pressed_fill();
+            c.button_hover = c.secondary_hover;
+            c.button_active = bezel_pressed;
             c.button_primary = c.primary;
             c.button_primary_foreground = c.primary_foreground;
             c.button_primary_hover = c.primary_hover;
@@ -335,7 +342,7 @@ impl Theme {
             c.danger = self.danger;
             c.danger_foreground = self.on_accent;
             c.danger_hover = self.danger.opacity(0.85);
-            c.danger_active = self.danger.opacity(0.7);
+            c.danger_active = role(PaintRole::Prominent(Tint::Red), Part::Fill, pressed);
             c.button_danger = c.danger;
             c.button_danger_foreground = c.danger_foreground;
             c.button_danger_hover = c.danger_hover;
@@ -380,9 +387,9 @@ impl Theme {
             c.caret = self.accent;
             c.selection = self.selection;
             c.ring = self.accent.opacity(0.4);
-            c.link = self.accent;
-            c.link_hover = self.accent;
-            c.link_active = self.accent.opacity(0.75);
+            c.link = role(PaintRole::Link, Part::Label, rest);
+            c.link_hover = c.link;
+            c.link_active = role(PaintRole::Link, Part::Label, pressed);
             c.drag_border = self.accent;
             c.drop_target = self.selected_fill();
             c.sidebar = self.glass_fill();
@@ -419,11 +426,11 @@ impl Theme {
             c.status_bar = self.background;
             c.status_bar_border = self.divider();
             c.skeleton = self.inset;
-            c.progress_bar = self.accent;
-            c.slider_bar = self.accent;
-            c.slider_thumb = Hsla::from(rgb(0xffffff));
-            c.switch = self.control_fill();
-            c.switch_thumb = Hsla::from(rgb(0xffffff));
+            c.progress_bar = role(PaintRole::Progress, Part::Fill, rest);
+            c.slider_bar = role(PaintRole::Slider, Part::Fill, rest);
+            c.slider_thumb = role(PaintRole::Slider, Part::Knob, rest);
+            c.switch = role(PaintRole::SwitchTrack { on: false }, Part::Fill, rest);
+            c.switch_thumb = role(PaintRole::SwitchKnob { on: false }, Part::Fill, rest);
             c.scrollbar = self.foreground.opacity(0.);
             c.scrollbar_thumb = self.foreground.opacity(0.28);
             c.scrollbar_thumb_hover = self.foreground.opacity(0.48);
@@ -565,6 +572,16 @@ mod tests {
                 assert_eq!(base.tokens.colors.primary, theme.accent);
                 assert_eq!(kit.primary, theme.accent);
                 assert_eq!(kit.tokens.primary.color, theme.accent);
+                // Kit state colors come from the same role rules (spec §6.2).
+                assert_eq!(kit.button, theme.bezel_fill());
+                assert_eq!(kit.secondary, theme.bezel_fill());
+                assert_eq!(kit.button_active.a, 0.165);
+                assert_eq!(
+                    kit.primary_active,
+                    rgb(if theme.is_dark() { 0x2d87ff } else { 0x036ee6 }).into()
+                );
+                assert_eq!(kit.link, theme.link());
+                assert_eq!(kit.slider_bar, theme.indicator_accent());
                 assert_eq!(base.tokens.radius.md, px(6.));
                 assert_eq!(cx.macos(), &theme);
                 assert_native_projection(cx, &theme);

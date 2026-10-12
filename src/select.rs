@@ -325,7 +325,6 @@ fn presentation(
         .justify_start()
         .accessibility_label(accessible_label.clone())
         .border_color(t.foreground.opacity(0.))
-        .bg(t.control_fill())
         .child(div().flex_1().min_w_0().text_ellipsis().child(label))
         .child(
             icon(if searchable {
@@ -559,6 +558,7 @@ fn choice_option(
     let target = state.clone();
     let hover = state.clone();
     button(("choice-option", index), "", ButtonVariant::Secondary, cx)
+        .paint_role(crate::state::PaintRole::Custom)
         .fill_duration(std::time::Duration::ZERO)
         .accessibility_label(item.label.clone())
         .debug_selector(move || format!("macos-choice-option-{index}"))

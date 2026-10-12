@@ -2,6 +2,7 @@
 //! The rounded track follows pointer drags exactly and eases keyboard changes.
 use crate::ActiveTheme;
 use crate::motion::{SLIDER_KNOB_SCALE, SLIDER_TRAVEL, out_cubic};
+use crate::state::{PaintRole, Part, States, paint};
 use gpui_kit::base::motion::{Transition, transition};
 use gpui_kit::base::{
     Slider, SliderIndicator, SliderThumb, SliderTrack,
@@ -31,7 +32,9 @@ pub fn slider(
     cx: &mut App,
 ) -> Slider {
     let t = cx.macos().clone();
-    let active = window.is_window_active();
+    // Spec §6.2.8 (C18): only the fill changes with state.
+    let states = States::in_window(window).disabled(disabled);
+    let active = states.window_active;
     let id = state.entity_id();
     let target_percentage = state.read(cx).percentage();
     let range = state.read(cx).value().is_range();
@@ -99,7 +102,7 @@ pub fn slider(
                         .right(rems(-KNOB_WIDTH / 2.))
                         .h_full()
                         .rounded_full()
-                        .bg(t.surface.blend(t.foreground.opacity(0.16))),
+                        .bg(paint(PaintRole::Slider, Part::Track, states, &t)),
                 )
                 .child(
                     div()
@@ -110,7 +113,7 @@ pub fn slider(
                         .when(!range, |selection| selection.left(rems(-KNOB_WIDTH / 2.)))
                         .right(relative(1. - percentage.end))
                         .rounded_full()
-                        .bg(crate::controls::slider_selection(&t, active)),
+                        .bg(paint(PaintRole::Slider, Part::Fill, states, &t)),
                 ),
         );
     for start in [true, false] {
@@ -175,7 +178,7 @@ pub fn slider(
                 .rounded_full()
                 .border_1()
                 .border_color(t.foreground.opacity(0.))
-                .bg(crate::controls::control_thumb(&t, active))
+                .bg(paint(PaintRole::Slider, Part::Knob, states, &t))
                 .shadow(t.control_shadow())
                 .when(!disabled, |thumb| {
                     thumb
@@ -230,7 +233,6 @@ pub fn slider(
         .disabled(disabled)
         .w_full()
         .h(rems(1.))
-        .when(disabled, |s| s.opacity(0.45))
         .child(track)
 }
 

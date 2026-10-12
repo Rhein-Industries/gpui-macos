@@ -89,7 +89,13 @@ impl RenderOnce for OtpInput {
                     })
                     .font_family(t.font.clone())
                     .native_text_style(crate::TextStyle::Body, cx.macos())
-                    .text_color(t.foreground)
+                    // ControlLabel, spec §6.2.10; the field text rule is later work.
+                    .text_color(crate::state::paint(
+                        crate::state::PaintRole::ControlLabel,
+                        crate::state::Part::Label,
+                        crate::state::States::active().disabled(self.disabled),
+                        t,
+                    ))
                     .when(!self.disabled, |cell| {
                         cell.on_mouse_down(MouseButton::Left, move |_, window, cx| {
                             target.update(cx, |state, cx| state.focus(window, cx))
@@ -106,7 +112,6 @@ impl RenderOnce for OtpInput {
                 .gap(rems(0.375))
                 .children(cells)
                 .refine_style(&self.style)
-                .opacity(0.45)
                 .into_any_element();
         }
         let paste = state.clone();

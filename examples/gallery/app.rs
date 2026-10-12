@@ -1382,6 +1382,7 @@ impl Gallery {
             ("outline", "Outline", ButtonVariant::Outline),
             ("secondary", "Secondary", ButtonVariant::Secondary),
             ("danger", "Danger", ButtonVariant::Danger),
+            ("borderless", "Borderless", ButtonVariant::Borderless),
         ] {
             content = content.child(
                 div()

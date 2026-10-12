@@ -1,3 +1,7 @@
+// Modified by gpui-macos contributors in 2026: render-time control state children and default styles.
+// Original: longbridge/gpui-kit 0bbd9870ce420af9feacbf948b21d3824d82dc0b.
+// Copyright 2024-2026 Longbridge; Apache-2.0. See LICENSE-APACHE and MACOS-PATCH.md.
+
 use std::rc::Rc;
 
 use gpui::{
@@ -24,12 +28,14 @@ pub struct Toggle {
     semantic_styles: ToggleStyles,
     pressed: bool,
     disabled: bool,
-    children: SmallVec<[AnyElement; 2]>,
+    children: SmallVec<[crate::state_child::StateChild; 2]>,
     on_change: Option<ChangeHandler>,
     accessibility_label: Option<SharedString>,
     tab_index: isize,
     tab_stop: bool,
     tracked_focus: Option<FocusHandle>,
+    default_styles: Option<crate::state_child::DefaultStyles>,
+    interaction: crate::state_child::CallerInteraction,
 }
 
 /// Semantic root styles supported by [`Toggle`].
@@ -69,7 +75,21 @@ impl Toggle {
             tab_index: 0,
             tab_stop: true,
             tracked_focus: None,
+            default_styles: None,
+            interaction: Default::default(),
         }
+    }
+
+    /// Supplies render-time default styles from the final control state.
+    /// `checked` is the final pressed value. Caller styles, including
+    /// semantic `styles`, `hover` and `active`, take precedence; default hover
+    /// and active styles are dropped while disabled.
+    pub fn default_styles(
+        mut self,
+        build: impl FnOnce(crate::ControlState, &mut Window, &mut App) -> crate::StateStyles + 'static,
+    ) -> Self {
+        self.default_styles = Some(Box::new(build));
+        self
     }
 
     pub fn pressed(mut self, pressed: bool) -> Self {
@@ -79,6 +99,26 @@ impl Toggle {
 
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
+        self
+    }
+
+    /// Adds a child built with the final disabled state, so it can present
+    /// disabled colors even when `disabled` is set after it is added.
+    pub fn child_with_disabled<E: IntoElement>(
+        self,
+        build: impl FnOnce(bool) -> E + 'static,
+    ) -> Self {
+        self.child_with_state(move |state| build(state.disabled))
+    }
+
+    /// Adds a child built with the final render-time control state.
+    /// `focus_visible` is currently false; focus producers are added separately.
+    pub fn child_with_state<E: IntoElement>(
+        mut self,
+        build: impl FnOnce(crate::ControlState) -> E + 'static,
+    ) -> Self {
+        self.children
+            .push(crate::state_child::StateChild::state(build));
         self
     }
 
@@ -145,7 +185,11 @@ impl Styled for Toggle {
 
 impl ParentElement for Toggle {
     fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
-        self.children.extend(elements);
+        self.children.extend(
+            elements
+                .into_iter()
+                .map(crate::state_child::StateChild::Ready),
+        );
     }
 }
 
@@ -153,19 +197,39 @@ impl InteractiveElement for Toggle {
     fn interactivity(&mut self) -> &mut Interactivity {
         self.base.interactivity()
     }
+
+    /// Captured so render-time default styles can sit beneath it.
+    fn hover(mut self, f: impl FnOnce(StyleRefinement) -> StyleRefinement) -> Self {
+        self.interaction.hover = Some(f(StyleRefinement::default()));
+        self
+    }
 }
 
-impl StatefulInteractiveElement for Toggle {}
+impl StatefulInteractiveElement for Toggle {
+    /// Captured so render-time default styles can sit beneath it.
+    fn active(mut self, f: impl FnOnce(StyleRefinement) -> StyleRefinement) -> Self {
+        self.interaction.active = Some(f(StyleRefinement::default()));
+        self
+    }
+}
 
 impl RenderOnce for Toggle {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(mut self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let focus_handle = self
             .tracked_focus
             .clone()
             .unwrap_or_else(|| self.focus_handle(window, cx));
         let pressed = self.pressed;
         let disabled = self.disabled;
-        let style = self.resolved_style();
+        let control_state = crate::ControlState::new(disabled, pressed);
+        let styles = crate::state_child::resolve_styles(
+            self.default_styles.take(),
+            control_state,
+            self.resolved_style(),
+            std::mem::take(&mut self.interaction),
+            window,
+            cx,
+        );
         let on_change = self.on_change;
 
         self.base
@@ -206,8 +270,14 @@ impl RenderOnce for Toggle {
                     })
                 },
             )
-            .children(self.children)
-            .refine_style(&style)
+            .when_some(styles.hover, |this, style| this.hover(move |_| style))
+            .when_some(styles.active, |this, style| this.active(move |_| style))
+            .children(
+                self.children
+                    .into_iter()
+                    .map(|child| child.resolve(control_state)),
+            )
+            .refine_style(&styles.base)
     }
 }
 
@@ -302,6 +372,156 @@ mod tests {
         }
         assert_eq!(changes.borrow().as_slice(), &[true, true]);
         assert_eq!(keyboard_changes.get(), 2);
+    }
+
+    #[gpui::test]
+    fn state_children_receive_the_final_state(cx: &mut TestAppContext) {
+        struct View(Rc<RefCell<Vec<crate::ControlState>>>);
+        impl Render for View {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                let seen = self.0.clone();
+                div().children([false, true].map(|disabled| {
+                    let state = seen.clone();
+                    let flag = seen.clone();
+                    Toggle::new(("toggle-state", disabled as usize))
+                        .child_with_state(move |control| {
+                            state.borrow_mut().push(control);
+                            div()
+                        })
+                        .child_with_disabled(move |disabled| {
+                            flag.borrow_mut()
+                                .push(crate::ControlState::new(disabled, false));
+                            div()
+                        })
+                        .child("Label")
+                        // Set after the children were added.
+                        .disabled(disabled)
+                }))
+            }
+        }
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let view_seen = seen.clone();
+        let (_, cx) = cx.add_window_view(move |_, _| View(view_seen));
+        seen.borrow_mut().clear();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let seen = seen.borrow();
+        assert_eq!(
+            seen.iter().map(|s| s.disabled).collect::<Vec<_>>(),
+            [false, false, true, true]
+        );
+        assert!(!seen[0].focus_visible && !seen[2].focus_visible);
+    }
+
+    #[gpui::test]
+    fn default_styles_use_final_state_beneath_caller_styles(cx: &mut TestAppContext) {
+        use crate::state_child::{CallerInteraction, resolve_styles};
+        use gpui::{Hsla, hsla};
+        let red: Hsla = hsla(0., 1., 0.5, 1.);
+        let blue: Hsla = hsla(0.6, 1., 0.5, 1.);
+        let green: Hsla = hsla(0.3, 1., 0.5, 1.);
+        let defaults = move |state: crate::ControlState| {
+            crate::StateStyles::new(StyleRefinement::default().bg(red).text_color(red))
+                .hover(StyleRefinement::default().bg(green))
+                .active(
+                    StyleRefinement::default()
+                        .bg(if state.checked { blue } else { green })
+                        .text_color(green),
+                )
+        };
+        let resolve = |state, caller, interaction, window: &mut Window, cx: &mut App| {
+            resolve_styles(
+                Some(Box::new(move |state, _, _| defaults(state))),
+                state,
+                caller,
+                interaction,
+                window,
+                cx,
+            )
+        };
+        let (_, cx) = cx.add_window_view(|_, _| gpui::Empty);
+        cx.update(|window, cx| {
+            // A caller background wins at rest and while pressed or hovered;
+            // the default label colour remains.
+            let resolved = resolve(
+                crate::ControlState::new(false, true),
+                StyleRefinement::default().bg(blue),
+                CallerInteraction::default(),
+                window,
+                cx,
+            );
+            assert_eq!(resolved.base.background, Some(blue.into()));
+            assert_eq!(resolved.base.text.color, Some(red));
+            assert_eq!(resolved.hover.unwrap().background, None);
+            let active = resolved.active.unwrap();
+            assert_eq!(active.background, None);
+            assert_eq!(active.text.color, Some(green));
+            // A caller label colour persists while pressed.
+            let label = resolve(
+                crate::ControlState::new(false, true),
+                StyleRefinement::default().text_color(blue),
+                CallerInteraction::default(),
+                window,
+                cx,
+            );
+            let active = label.active.unwrap();
+            assert_eq!(active.background, Some(blue.into()));
+            assert_eq!(active.text.color, None);
+            // Caller hover / active replace the defaults; an empty one clears them.
+            let replaced = resolve(
+                crate::ControlState::new(false, true),
+                StyleRefinement::default(),
+                CallerInteraction {
+                    hover: Some(StyleRefinement::default().text_color(blue)),
+                    active: Some(StyleRefinement::default()),
+                },
+                window,
+                cx,
+            );
+            let hover = replaced.hover.unwrap();
+            assert_eq!(hover.background, None, "caller hover replaces");
+            assert_eq!(hover.text.color, Some(blue));
+            let active = replaced.active.unwrap();
+            assert_eq!((active.background, active.text.color), (None, None));
+            // Disabled drops the default transient styles but keeps the caller's.
+            let disabled = resolve(
+                crate::ControlState::new(true, false),
+                StyleRefinement::default(),
+                CallerInteraction {
+                    hover: Some(StyleRefinement::default().text_color(blue)),
+                    active: None,
+                },
+                window,
+                cx,
+            );
+            assert_eq!(disabled.base.background, Some(red.into()));
+            assert_eq!(disabled.hover.unwrap().text.color, Some(blue));
+            assert!(disabled.active.is_none());
+        });
+    }
+
+    #[gpui::test]
+    fn default_styles_see_the_final_pressed_value(cx: &mut TestAppContext) {
+        struct View(Rc<RefCell<Vec<crate::ControlState>>>);
+        impl Render for View {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                let seen = self.0.clone();
+                Toggle::new("final-value")
+                    .pressed(false)
+                    .default_styles(move |state, _, _| {
+                        seen.borrow_mut().push(state);
+                        crate::StateStyles::default()
+                    })
+                    // Value and disabled set after the default styles.
+                    .pressed(true)
+                    .disabled(true)
+            }
+        }
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let view_seen = seen.clone();
+        let (_, cx) = cx.add_window_view(move |_, _| View(view_seen));
+        seen.borrow_mut().clear();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert_eq!(&*seen.borrow(), &[crate::ControlState::new(true, true)]);
     }
 
     #[gpui::test]

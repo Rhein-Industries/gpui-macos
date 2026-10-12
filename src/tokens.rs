@@ -90,6 +90,20 @@ const DISABLED_BEZEL_LABEL: [f32; 2] = [0.257, 0.290];
 const DISABLED_SWITCH_OFF_DARK: u32 = 0xcfcfcf;
 /// Dark disabled off-switch track alpha, spec §6.2.7.
 const DISABLED_SWITCH_OFF_DARK_ALPHA: f32 = 0.063;
+/// Default `controlAccentColor` / `prominent_tint`, spec §2A.3 and §2B.
+const DEFAULT_ACCENT: u32 = 0x007aff;
+/// Bezel fill ink alpha, spec §2B `bezel_fill` and §6.2.1 (C14).
+const BEZEL_FILL: f32 = 0.078;
+/// `indicator_accent` (light / dark) for the default accent, spec §2B.
+const INDICATOR_ACCENT: [u32; 2] = [0x0078f9, 0x067eff];
+/// Rendered `link` (light / dark), spec §2A.1 and §2B `link_rendered`.
+const LINK: [u32; 2] = [0x0068da, 0x419cff];
+/// Switch knob shadow ink (light / dark), tuned toward the measured darkening
+/// of about 6/255 below the knob, spec §6.2.7 (C19; estimate).
+const SWITCH_KNOB_SHADOW: [f32; 2] = [0.05, 0.2];
+/// Disabled dimming kept only for `PaintRole::Custom` buttons and adapters
+/// that paint their own look until M4/M5 give them roles (plan D6).
+pub(crate) const CUSTOM_DISABLED_OPACITY: f32 = 0.45;
 
 pub(crate) fn ink(theme: &Theme) -> Hsla {
     if theme.is_dark() {
@@ -117,7 +131,43 @@ pub(crate) fn disabled_bezel(theme: &Theme) -> (Hsla, Hsla) {
         ink(theme).opacity(DISABLED_BEZEL_LABEL[usize::from(theme.is_dark())]),
     )
 }
+pub(crate) fn switch_knob_shadow(theme: &Theme) -> Vec<gpui_kit::BoxShadow> {
+    vec![
+        gpui_kit::BoxShadow::new(
+            gpui_kit::px(0.),
+            gpui_kit::px(1.),
+            Hsla::black().opacity(SWITCH_KNOB_SHADOW[usize::from(theme.is_dark())]),
+        )
+        .blur_radius(gpui_kit::px(2.)),
+    ]
+}
 impl Theme {
+    /// Whether the accent is the system default, so accent-derived measured
+    /// values apply (plan D7).
+    pub(crate) fn has_default_accent(&self) -> bool {
+        self.accent == Hsla::from(rgb(DEFAULT_ACCENT))
+    }
+    /// Translucent bezel fill, spec §2B `bezel_fill` (C14).
+    pub fn bezel_fill(&self) -> Hsla {
+        ink(self).opacity(BEZEL_FILL)
+    }
+    /// Accent painted by checkbox, radio, toggle-on, segment, switch and
+    /// slider fills, spec §2B. A custom accent is used as is (plan D7).
+    pub fn indicator_accent(&self) -> Hsla {
+        if self.has_default_accent() {
+            rgb(INDICATOR_ACCENT[usize::from(self.is_dark())]).into()
+        } else {
+            self.accent
+        }
+    }
+    /// Rendered link color, spec §2A.1 `link`. A custom accent is used as is.
+    pub fn link(&self) -> Hsla {
+        if self.has_default_accent() {
+            rgb(LINK[usize::from(self.is_dark())]).into()
+        } else {
+            self.accent
+        }
+    }
     /// Semantic tertiary label, spec §2A.1; used for disabled control labels (§8.2).
     pub fn tertiary_label(&self) -> Hsla {
         let values = if self.increased_contrast {

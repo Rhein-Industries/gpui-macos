@@ -4,6 +4,7 @@
 //! opt in using [`native_material`]. [`material`] supplies a deterministic fill
 //! for canvas overlays and other platforms.
 use crate::NativeTextStyle as _;
+use crate::state::PaintRole;
 use crate::{ActiveTheme, Button, ButtonVariant, IconName, button, icon};
 use gpui_kit::{
     App, Div, ElementId, FontWeight, IntoElement, RenderOnce, SharedString, Stateful, Window,
@@ -109,6 +110,7 @@ pub fn toolbar_button(
 ) -> Button {
     let t = cx.macos();
     button(id, "", ButtonVariant::Secondary, cx)
+        .paint_role(PaintRole::Custom)
         .accessibility_label(label)
         .fill_duration(Duration::ZERO)
         .size(rems(2.))
@@ -198,6 +200,7 @@ pub fn sidebar_item(
     };
     let label = label.into();
     button(id, "", ButtonVariant::Secondary, cx)
+        .paint_role(PaintRole::Custom)
         .accessibility_label(label.clone())
         .selected(selected)
         .aria_selected(selected)

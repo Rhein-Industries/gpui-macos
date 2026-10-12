@@ -6,6 +6,9 @@ const PATTERNS: &[&str] = &[
     "text_size(rems|px(<literal>))",
     "relative(1.",
     "opacity(0.45)",
+    // Compatibility dimming for Custom paint; native roles are migrated, so
+    // new call sites must not appear (plan D6).
+    "CUSTOM_DISABLED_OPACITY",
     "rgb(0x",
     "Hsla::black()/Hsla::white()",
     "hover_fill",

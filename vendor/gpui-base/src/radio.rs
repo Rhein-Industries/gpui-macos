@@ -222,10 +222,15 @@ impl RenderOnce for Radio {
         let focus_handle = self.focus_handle(window, cx);
         let disabled = self.disabled;
         let checked = self.checked;
+        let press = crate::state_child::press_state(&self.id, disabled, window, cx);
+        let pressed = *press.read(cx);
         let style = self.resolved_style();
         let on_change = self.on_change;
 
         self.base
+            .when(!disabled, |this| {
+                crate::state_child::track_press(this, &press)
+            })
             .test_support()
             .role(Role::RadioButton)
             .aria_toggled(if checked {
@@ -259,11 +264,9 @@ impl RenderOnce for Radio {
                     })
                 },
             )
-            .children(
-                self.children
-                    .into_iter()
-                    .map(|child| child.resolve(disabled)),
-            )
+            .children(self.children.into_iter().map(|child| {
+                child.resolve(crate::ControlState::new(disabled, checked).with_pressed(pressed))
+            }))
             .refine_style(&style)
     }
 }

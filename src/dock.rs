@@ -47,6 +47,7 @@ impl TabGroupRenderer for MacosDock {
             let drop_target = group.clone();
             let label = panel.panel_name(cx);
             let tab = button(index, label, ButtonVariant::Outline, cx)
+                .paint_role(crate::state::PaintRole::Custom)
                 .debug_selector(move || format!("dock-tab-{label}"))
                 .rounded(rems(0.5))
                 .border_0()

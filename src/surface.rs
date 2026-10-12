@@ -270,13 +270,14 @@ struct NativeProgressPaint(f32);
 impl RenderOnce for NativeProgressPaint {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let t = cx.macos();
-        let fill = if window.is_window_active() {
-            t.accent
-        } else {
-            // Both captured AppKit appearances resolve the inactive fill to
-            // RGB 170; the track and surrounding surfaces keep their own roles.
-            gpui_kit::rgb(0xaaaaaa).into()
-        };
+        // Spec §6.2.9: an inactive window paints opaque #AAAAAA; the track and
+        // surrounding surfaces keep their own roles.
+        let fill = crate::state::paint(
+            crate::state::PaintRole::Progress,
+            crate::state::Part::Fill,
+            crate::state::States::in_window(window),
+            t,
+        );
         ProgressTrack::new()
             .relative()
             .w_full()

@@ -384,9 +384,14 @@ impl RenderOnce for Switch {
         let focus_handle = self.focus_handle(window, cx);
         let checked = self.checked;
         let disabled = self.disabled;
+        let press = crate::state_child::press_state(&self.id, disabled, window, cx);
+        let pressed = *press.read(cx);
         let style = self.resolved_style();
 
         self.base
+            .when(!disabled, |this| {
+                crate::state_child::track_press(this, &press)
+            })
             .test_support()
             .role(Role::Switch)
             .aria_toggled(if checked {
@@ -417,11 +422,9 @@ impl RenderOnce for Switch {
                     })
                 },
             )
-            .children(
-                self.children
-                    .into_iter()
-                    .map(|child| child.resolve(disabled)),
-            )
+            .children(self.children.into_iter().map(|child| {
+                child.resolve(crate::ControlState::new(disabled, checked).with_pressed(pressed))
+            }))
             .refine_style(&style)
     }
 }

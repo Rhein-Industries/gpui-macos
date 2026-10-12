@@ -720,8 +720,8 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 fill,
-                cx.macos().control_fill(),
-                "Inactive Continue uses a neutral bezel"
+                cx.macos().bezel_fill(),
+                "Inactive Continue uses the translucent Bezel (spec 6.2.3)"
             );
             action.bounds().center()
         });

@@ -1,6 +1,7 @@
 //! Rounded switch track and white thumb with smooth state transitions.
 use crate::ActiveTheme;
 use crate::motion::{CONTROL_COLOR, SWITCH_TRAVEL, color, out_cubic};
+use crate::state::{PaintRole, Part, States, paint};
 use gpui_kit::base::motion::transition;
 use gpui_kit::base::{SwitchThumb, SwitchTrack};
 use gpui_kit::{
@@ -23,6 +24,7 @@ pub(crate) struct SwitchMotion {
     id: ElementId,
     checked: bool,
     disabled: bool,
+    pressed: bool,
 }
 
 impl SwitchMotion {
@@ -31,11 +33,17 @@ impl SwitchMotion {
             id,
             checked,
             disabled: false,
+            pressed: false,
         }
     }
 
-    /// AppKit keeps a disabled on track tinted at reduced opacity and an off
-    /// track as a faint neutral well; the thumb stays opaque.
+    /// A left-button press anywhere on the switch (§6.2.7 P).
+    pub(crate) fn pressed(mut self, pressed: bool) -> Self {
+        self.pressed = pressed;
+        self
+    }
+
+    /// The final disabled state; track and knob use their disabled arms.
     pub(crate) fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
         self
@@ -45,25 +53,32 @@ impl SwitchMotion {
 impl RenderOnce for SwitchMotion {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let t = cx.macos().clone();
-        let active = window.is_window_active();
         let checked = self.checked;
+        let states = States::in_window(window)
+            .disabled(self.disabled)
+            .pressed(self.pressed);
         let fade = color(crate::motion::animated_duration(window, CONTROL_COLOR));
+        // Spec §6.2.7: explicit track and knob arms per state (C19).
         let track_bg = transition(
             "macos-switch-track-bg",
-            match (checked, self.disabled) {
-                (true, false) => crate::controls::control_selection(&t, active),
-                (true, true) => crate::controls::control_selection(&t, active)
-                    .opacity(crate::tokens::DISABLED_SWITCH_OPACITY),
-                (false, false) => crate::controls::unchecked_control_fill(&t, active),
-                (false, true) => crate::tokens::disabled_switch_off(&t),
-            },
+            paint(
+                PaintRole::SwitchTrack { on: checked },
+                Part::Fill,
+                states,
+                &t,
+            ),
             fade.clone(),
             window,
             cx,
         );
         let thumb_bg: gpui_kit::Hsla = transition(
             "macos-switch-thumb-bg",
-            crate::controls::control_thumb(&t, active),
+            paint(
+                PaintRole::SwitchKnob { on: checked },
+                Part::Fill,
+                states,
+                &t,
+            ),
             fade,
             window,
             cx,
@@ -94,7 +109,7 @@ impl RenderOnce for SwitchMotion {
                     .h(rems(THUMB_HEIGHT))
                     .rounded_full()
                     .bg(thumb_bg)
-                    .shadow(t.control_shadow())
+                    .shadow(crate::tokens::switch_knob_shadow(&t))
                     .ml(rems(KNOB_TRAVEL * travel))
                     .child(
                         div()
@@ -199,7 +214,12 @@ mod tests {
         assert_eq!(thumb_x(cx), on);
         let track = cx.debug_bounds("macos-switch-track-wifi").unwrap();
         cx.update(|window, cx| {
-            let expected = crate::controls::control_selection(cx.macos(), false);
+            let expected = crate::state::paint(
+                crate::state::PaintRole::SwitchTrack { on: true },
+                crate::state::Part::Fill,
+                crate::state::States::active().window_active(false),
+                cx.macos(),
+            );
             assert!(window.painted_quads().iter().any(|quad| {
                 quad.bounds == track.scale(window.scale_factor())
                     && quad.background.as_solid() == Some(expected)
