@@ -1,6 +1,10 @@
 //! A keyboard menu composed from the base Popover and Button primitives.
 use crate::NativeTextStyle as _;
 use crate::state::{PaintRole, Part, States, paint};
+use crate::tokens::{
+    BORDER_1, MENU_HIGHLIGHT_INSET, MENU_HIGHLIGHT_RADIUS, MENU_PADDING_Y, MENU_RADIUS,
+    MENU_ROW_HEIGHT, MENU_ROW_PADDING_X, MENU_SEPARATOR_HEIGHT, pt,
+};
 use crate::{ActiveTheme, ButtonVariant, IconName, button, icon, keystroke_label};
 use gpui_kit::base::{ElementExt, Popover, Popup};
 use gpui_kit::rems;
@@ -13,16 +17,16 @@ use std::{rc::Rc, time::Duration};
 
 /// What a row does when chosen, shared by both panels and every handler.
 type Select = Rc<dyn Fn(usize, &mut Window, &mut App)>;
+/// Moves the row cursor to the row under the pointer.
+type PointAt = Rc<dyn Fn(&mut Window, &mut App)>;
 
-/// Row height, and the gap that follows it, in rems.
-const ROW_HEIGHT: f32 = 1.75;
-const ROW_GAP: f32 = 0.125;
-/// A separator costs its padding on both sides plus its own hairline.
-const SEPARATOR_HEIGHT: f32 = 0.5625;
-const MENU_PADDING: f32 = 0.375;
-const SUBMENU_WIDTH: f32 = 10.625;
-/// Space between the menu and its submenu, in rems.
-const SUBMENU_GAP: f32 = 0.25;
+/// Panel widths in points.
+const MENU_WIDTH: f32 = 240.;
+const SUBMENU_WIDTH: f32 = 170.;
+/// Space between the menu and its submenu, in points.
+const SUBMENU_GAP: f32 = 4.;
+/// Icon, chevron and check slots, in points.
+const SLOT: f32 = 14.;
 
 #[derive(Clone)]
 pub struct MenuItem {
@@ -138,7 +142,6 @@ pub fn menu(
                     popover.focus_handle(cx).focus(window, cx);
                 }
             }
-            let t = cx.macos().clone();
             let cursor = window.use_keyed_state("menu-cursor", cx, |_, _| {
                 items.iter().position(|item| !item.disabled)
             });
@@ -211,33 +214,12 @@ pub fn menu(
             let submenu_cursor = child_cursor.clone();
             let submenu_page = page.clone();
             let submenu_select = on_select.clone();
-            let main = div()
+            let main = menu_panel(window, cx)
                 .id("menu-items")
                 .debug_selector(|| "macos-menu-content".into())
                 .role(gpui_kit::Role::Menu)
                 .track_focus(&focus)
-                .w(rems(15.))
-                .p(rems(MENU_PADDING))
-                .flex()
-                .flex_col()
-                .gap(rems(ROW_GAP))
-                .border_1()
-                .rounded(rems(0.75))
-                .border_color(t.glass_border())
-                .bg(if crate::native::is_glass_popup(window) {
-                    gpui_kit::transparent_black()
-                } else {
-                    let mut fill = t.glass_fill();
-                    fill.a = 1.;
-                    fill
-                })
-                .shadow(t.popover_shadow())
-                .when(crate::native::is_glass_popup(window), |menu| {
-                    menu.border_0().shadow_none()
-                })
-                .text_color(t.foreground)
-                .font_family(t.font.clone())
-                .native_text_style(crate::TextStyle::MenuItem, cx.macos())
+                .w(pt(MENU_WIDTH))
                 .on_action(move |_: &gpui_kit::base::actions::Confirm, window, cx| {
                     cx.stop_propagation();
                     if let Some(index) = *confirm_cursor.read(cx) {
@@ -317,89 +299,64 @@ pub fn menu(
                     let click_child = child_cursor.clone();
                     let current = *cursor.read(cx) == Some(index);
                     let select = on_select.clone();
-                    let shortcut = item.render_shortcut(window, cx);
-                    let row = button(("menu-item", index), "", ButtonVariant::Secondary, cx)
-                        .paint_role(crate::state::PaintRole::Custom)
-                        .debug_selector(move || format!("macos-menu-item-{index}"))
-                        .accessibility_label(item.label.clone())
-                        .role(gpui_kit::Role::MenuItem)
-                        .when_some(item.checked, |row, checked| {
-                            row.role(gpui_kit::Role::MenuItemRadio)
-                                .aria_toggled(if checked {
-                                    gpui_kit::accesskit::Toggled::True
-                                } else {
-                                    gpui_kit::accesskit::Toggled::False
-                                })
-                        })
-                        .focusable(false)
-                        .disabled(item.disabled)
-                        .fill_duration(Duration::ZERO)
-                        .w_full()
-                        .h(rems(ROW_HEIGHT))
-                        .py(rems(0.))
-                        .px(rems(0.5))
-                        .rounded(rems(0.375))
-                        .border_0()
-                        .shadow_none()
-                        .justify_start()
-                        .bg(menu_paint(current, Part::Fill, &t))
-                        .text_color(menu_paint(current, Part::Label, &t))
-                        .hover(|s| {
-                            s.bg(menu_paint(true, Part::Fill, &t))
-                                .text_color(menu_paint(true, Part::Label, &t))
-                        })
-                        .active(|s| {
-                            s.bg(menu_paint(true, Part::Fill, &t))
-                                .text_color(menu_paint(true, Part::Label, &t))
-                        })
-                        .when(has_icons, |row| {
-                            row.child(
-                                div()
-                                    .w(rems(0.875))
-                                    .flex_shrink_0()
-                                    .when_some(item.icon, |slot, name| {
-                                        slot.child(icon(name).size(rems(0.875)))
-                                    }),
-                            )
-                        })
-                        .child(div().flex_1().min_w_0().child(item.label.clone()))
-                        .when(item_has_children, |row| {
-                            row.child(icon(IconName::ChevronRight).size(rems(0.875)))
-                        })
-                        .when_some(item.checked, |row, checked| {
-                            row.child(div().w(rems(0.875)).when(checked, |slot| {
-                                slot.child(icon(IconName::Check).size(rems(0.875)))
-                            }))
-                        })
-                        .children(shortcut)
-                        .on_hover(move |hovered, window, cx| {
-                            if *hovered && !disabled {
-                                hover_page.update(cx, |page, cx| {
-                                    *page = item_has_children.then_some(index);
-                                    cx.notify();
-                                });
-                                hover_child.update(cx, |child, cx| {
-                                    *child = None;
-                                    cx.notify();
-                                });
-                                hover_cursor.update(cx, |cursor, cx| {
-                                    *cursor = Some(index);
-                                    cx.notify();
-                                });
-                                window.refresh();
-                            }
-                        })
-                        .on_click(move |_, window, cx| {
-                            // A pointer selects the row under it, not whatever
-                            // the keyboard left highlighted in a submenu.
-                            click_page.update(cx, |page, _| *page = None);
-                            click_child.update(cx, |child, _| *child = None);
-                            select(index, window, cx);
-                            window.refresh();
+                    // The pointer moves the one cursor that paints the
+                    // highlight, so the keyboard and the pointer never
+                    // highlight two rows.
+                    let move_cursor = cursor.clone();
+                    let point_at: PointAt = Rc::new(move |window, cx| {
+                        if disabled {
+                            return;
+                        }
+                        hover_page.update(cx, |page, cx| {
+                            *page = item_has_children.then_some(index);
+                            cx.notify();
                         });
+                        hover_child.update(cx, |child, cx| {
+                            *child = None;
+                            cx.notify();
+                        });
+                        hover_cursor.update(cx, |cursor, cx| {
+                            *cursor = Some(index);
+                            cx.notify();
+                        });
+                        window.refresh();
+                    });
+                    let row = menu_row(
+                        button(("menu-item", index), "", ButtonVariant::Secondary, cx)
+                            .debug_selector(move || format!("macos-menu-item-{index}")),
+                        item,
+                        current,
+                        has_icons,
+                        window,
+                        cx,
+                    )
+                    .on_hover({
+                        let point = point_at.clone();
+                        move |hovered, window, cx| {
+                            if *hovered {
+                                point(window, cx);
+                            }
+                        }
+                    })
+                    // The keyboard may have moved the cursor away from the
+                    // row under a resting pointer; moving the pointer again
+                    // takes it back.
+                    .on_mouse_move(move |_, window, cx| {
+                        if *move_cursor.read(cx) != Some(index) {
+                            point_at(window, cx);
+                        }
+                    })
+                    .on_click(move |_, window, cx| {
+                        // A pointer selects the row under it, not whatever
+                        // the keyboard left highlighted in a submenu.
+                        click_page.update(cx, |page, _| *page = None);
+                        click_child.update(cx, |child, _| *child = None);
+                        select(index, window, cx);
+                        window.refresh();
+                    });
                     div()
                         .when(item.separator_before, |group| {
-                            group.child(div().py(rems(0.25)).child(crate::separator(cx)))
+                            group.child(menu_separator(cx))
                         })
                         .child(row)
                 }));
@@ -425,9 +382,9 @@ pub fn menu(
                 .unwrap_or_else(|| Bounds::new(point(px(0.), px(0.)), window.viewport_size()));
                 let (anchor, origin) = submenu_placement(
                     *menu_bounds.read(cx),
-                    rems(submenu_offset(&submenu_items, parent)).to_pixels(rem),
-                    rems(SUBMENU_WIDTH).to_pixels(rem),
-                    rems(SUBMENU_GAP).to_pixels(rem),
+                    pt(submenu_offset(&submenu_items, parent)).to_pixels(rem),
+                    pt(SUBMENU_WIDTH).to_pixels(rem),
+                    pt(SUBMENU_GAP).to_pixels(rem),
                     viewport.right(),
                 );
                 if native {
@@ -601,116 +558,66 @@ fn submenu_panel(
     window: &Window,
     cx: &App,
 ) -> impl IntoElement {
-    let t = cx.macos().clone();
     let has_icons = items.iter().any(|(_, item)| item.icon.is_some());
     let highlighted = *cursor.read(cx);
-    div()
+    menu_panel(window, cx)
         .id("submenu")
         .debug_selector(|| "macos-submenu-content".into())
         .role(gpui_kit::Role::Menu)
         .occlude()
-        .w(rems(SUBMENU_WIDTH))
-        .p(rems(MENU_PADDING))
-        .flex()
-        .flex_col()
-        .gap(rems(ROW_GAP))
-        .border_1()
-        .rounded(rems(0.75))
-        .border_color(t.glass_border())
-        .bg(if crate::native::is_glass_popup(window) {
-            gpui_kit::transparent_black()
-        } else {
-            t.glass_fill()
-        })
-        .shadow(t.popover_shadow())
-        .when(crate::native::is_glass_popup(window), |menu| {
-            menu.border_0().shadow_none()
-        })
-        .text_color(t.foreground)
-        .font_family(t.font.clone())
-        .native_text_style(crate::TextStyle::MenuItem, cx.macos())
+        .w(pt(SUBMENU_WIDTH))
         .children(items.iter().enumerate().map(|(index, (_, item))| {
             let hover_cursor = cursor.clone();
             let click_cursor = cursor.clone();
             let click_page = page.clone();
             let select = select.clone();
             let disabled = item.disabled;
-            button(("submenu-item", index), "", ButtonVariant::Secondary, cx)
-                .paint_role(crate::state::PaintRole::Custom)
-                .debug_selector(move || format!("macos-submenu-item-{index}"))
-                .accessibility_label(item.label.clone())
-                .role(gpui_kit::Role::MenuItem)
-                .when_some(item.checked, |row, checked| {
-                    row.role(gpui_kit::Role::MenuItemRadio)
-                        .aria_toggled(if checked {
-                            gpui_kit::accesskit::Toggled::True
-                        } else {
-                            gpui_kit::accesskit::Toggled::False
-                        })
-                })
-                .focusable(false)
-                .disabled(disabled)
-                .fill_duration(Duration::ZERO)
-                .w_full()
-                .h(rems(ROW_HEIGHT))
-                .py(rems(0.))
-                .px(rems(0.5))
-                .rounded(rems(0.375))
-                .border_0()
-                .shadow_none()
-                .justify_start()
-                .bg(menu_paint(highlighted == Some(index), Part::Fill, &t))
-                .text_color(menu_paint(highlighted == Some(index), Part::Label, &t))
-                .hover(|s| {
-                    s.bg(menu_paint(true, Part::Fill, &t))
-                        .text_color(menu_paint(true, Part::Label, &t))
-                })
-                .active(|s| {
-                    s.bg(menu_paint(true, Part::Fill, &t))
-                        .text_color(menu_paint(true, Part::Label, &t))
-                })
-                .when(has_icons, |row| {
-                    row.child(
-                        div()
-                            .w(rems(0.875))
-                            .flex_shrink_0()
-                            .when_some(item.icon, |slot, name| {
-                                slot.child(icon(name).size(rems(0.875)))
-                            }),
-                    )
-                })
-                .child(div().flex_1().min_w_0().child(item.label.clone()))
-                .when_some(item.checked, |row, checked| {
-                    row.child(div().w(rems(0.875)).when(checked, |slot| {
-                        slot.child(icon(IconName::Check).size(rems(0.875)))
-                    }))
-                })
-                .children(item.render_shortcut(window, cx))
-                .on_hover(move |hovered, window, cx| {
+            menu_row(
+                button(("submenu-item", index), "", ButtonVariant::Secondary, cx)
+                    .debug_selector(move || format!("macos-submenu-item-{index}")),
+                item,
+                highlighted == Some(index),
+                has_icons,
+                window,
+                cx,
+            )
+            .on_hover({
+                let cursor = hover_cursor.clone();
+                move |hovered, window, cx| {
                     if *hovered && !disabled {
-                        hover_cursor.update(cx, |cursor, cx| {
+                        cursor.update(cx, |cursor, cx| {
                             *cursor = Some(index);
                             cx.notify();
                         });
                         window.refresh();
                     }
-                })
-                .on_click(move |_, window, cx| {
-                    click_page.update(cx, |page, _| *page = Some(parent));
-                    click_cursor.update(cx, |cursor, _| *cursor = Some(index));
-                    select(parent, window, cx);
+                }
+            })
+            .on_mouse_move(move |_, window, cx| {
+                if !disabled && *hover_cursor.read(cx) != Some(index) {
+                    hover_cursor.update(cx, |cursor, cx| {
+                        *cursor = Some(index);
+                        cx.notify();
+                    });
                     window.refresh();
-                })
+                }
+            })
+            .on_click(move |_, window, cx| {
+                click_page.update(cx, |page, _| *page = Some(parent));
+                click_cursor.update(cx, |cursor, _| *cursor = Some(index));
+                select(parent, window, cx);
+                window.refresh();
+            })
         }))
 }
 
-/// How far the submenu sits below the top of the menu, so its first row lines
-/// up with the parent row that opened it. Both panels share the same border
-/// and padding, so only the rows above the parent count.
+/// How far the submenu sits below the top of the menu, in points, so its
+/// first row lines up with the parent row that opened it. Both panels share
+/// the same chrome, so only the rows above the parent count.
 fn submenu_offset(items: &[MenuItem], parent: usize) -> f32 {
     let separator = |item: &MenuItem| {
         if item.separator_before {
-            SEPARATOR_HEIGHT
+            MENU_SEPARATOR_HEIGHT
         } else {
             0.
         }
@@ -718,9 +625,116 @@ fn submenu_offset(items: &[MenuItem], parent: usize) -> f32 {
     items
         .iter()
         .take(parent)
-        .map(|item| ROW_HEIGHT + ROW_GAP + separator(item))
+        .map(|item| MENU_ROW_HEIGHT + separator(item))
         .sum::<f32>()
         + items.get(parent).map_or(0., separator)
+}
+
+/// Menu and submenu panel chrome, spec §7.3 (C25): rows inset 5 pt from the
+/// leading and 5.5 pt from the trailing edge, 5 pt above the first and below
+/// the last row, radius 13 and 13 pt text. The insets are measured from the
+/// panel's outer edge, so the inline fallback's border counts toward them.
+/// In a glass popup the glass is the panel: the chrome paints nothing and
+/// declares the glass radius instead (plan D13).
+fn menu_panel(window: &Window, cx: &App) -> gpui_kit::Div {
+    let t = cx.macos();
+    let native = crate::native::is_glass_popup(window);
+    crate::native::set_popup_corner_radius(window, MENU_RADIUS);
+    let border = if native { Pixels::ZERO } else { BORDER_1 };
+    let rem = window.rem_size();
+    let inset = |points: f32| (pt(points).to_pixels(rem) - border).max(Pixels::ZERO);
+    let (leading, trailing) = MENU_HIGHLIGHT_INSET;
+    div()
+        .flex()
+        .flex_col()
+        .pt(inset(MENU_PADDING_Y))
+        .pb(inset(MENU_PADDING_Y))
+        .pl(inset(leading))
+        .pr(inset(trailing))
+        .rounded(pt(MENU_RADIUS))
+        .text_color(t.foreground)
+        .font_family(t.font.clone())
+        .native_text_style(crate::TextStyle::MenuItem, t)
+        .when(!native, |panel| {
+            let mut fill = t.glass_fill();
+            fill.a = 1.;
+            panel
+                .border_1()
+                .border_color(t.glass_border())
+                .bg(fill)
+                .shadow(t.popover_shadow())
+        })
+}
+
+/// A separator row: a hairline centred in 11 pt (spec §7.3).
+fn menu_separator(cx: &App) -> gpui_kit::Div {
+    div()
+        .h(pt(MENU_SEPARATOR_HEIGHT))
+        .flex()
+        .flex_col()
+        .justify_center()
+        .child(crate::separator(cx))
+}
+
+/// A menu or submenu row through the MenuItem role (spec §7.3, C25, D10):
+/// 24 pt tall, highlight radius 6.5, accent with a white label on the row
+/// cursor, which both the keyboard and the pointer move. Disabled rows keep the
+/// tertiary label instead of dimming the whole row.
+fn menu_row(
+    row: crate::Button,
+    item: &MenuItem,
+    highlighted: bool,
+    has_icons: bool,
+    window: &Window,
+    cx: &App,
+) -> crate::Button {
+    let t = cx.macos();
+    let disabled = item.disabled;
+    let paint = |highlighted, part| menu_paint(highlighted, disabled, part, t);
+    let slot = || div().w(pt(SLOT)).flex_shrink_0();
+    row.paint_role(PaintRole::MenuItem { highlighted })
+        .accessibility_label(item.label.clone())
+        .role(gpui_kit::Role::MenuItem)
+        .when_some(item.checked, |row, checked| {
+            row.role(gpui_kit::Role::MenuItemRadio)
+                .aria_toggled(if checked {
+                    gpui_kit::accesskit::Toggled::True
+                } else {
+                    gpui_kit::accesskit::Toggled::False
+                })
+        })
+        .focusable(false)
+        .disabled(disabled)
+        .styles(|s| s.disabled(|s| s.opacity(1.)))
+        .fill_duration(Duration::ZERO)
+        .w_full()
+        .h(pt(MENU_ROW_HEIGHT))
+        .min_h(pt(MENU_ROW_HEIGHT))
+        .py(rems(0.))
+        .px(pt(MENU_ROW_PADDING_X))
+        .rounded(pt(MENU_HIGHLIGHT_RADIUS))
+        .border_0()
+        .shadow_none()
+        .justify_start()
+        .native_text_style(crate::TextStyle::MenuItem, t)
+        // The cursor alone paints the highlight; the pointer moves it.
+        .bg(paint(highlighted, Part::Fill))
+        .text_color(paint(highlighted, Part::Label))
+        .when(has_icons, |row| {
+            row.child(slot().when_some(item.icon, |slot, name| {
+                slot.child(icon(name).size(pt(SLOT)))
+            }))
+        })
+        .child(div().flex_1().min_w_0().child(item.label.clone()))
+        .when(!item.children.is_empty(), |row| {
+            row.child(icon(IconName::ChevronRight).size(pt(SLOT)))
+        })
+        .when_some(item.checked, |row, checked| {
+            row.child(slot().when(checked, |slot| {
+                slot.child(icon(IconName::Check).size(pt(SLOT)))
+            }))
+        })
+        .children(item.render_shortcut(window, cx))
 }
 
 fn next_item(enabled: &[usize], current: Option<usize>, key: &str) -> Option<usize> {
@@ -739,13 +753,18 @@ fn next_item(enabled: &[usize], current: Option<usize>, key: &str) -> Option<usi
     Some(enabled[index])
 }
 
-/// A menu row's fill or label, through the MenuItem role (D10). Menus are
-/// key while open, so the active-window arm applies; M5 finalises values.
-fn menu_paint(highlighted: bool, part: Part, theme: &crate::Theme) -> gpui_kit::Hsla {
+/// A menu row's fill or label, through the MenuItem role (spec §7.3, D10).
+/// Menus are key while open, so the active-window arm applies.
+fn menu_paint(
+    highlighted: bool,
+    disabled: bool,
+    part: Part,
+    theme: &crate::Theme,
+) -> gpui_kit::Hsla {
     paint(
         PaintRole::MenuItem { highlighted },
         part,
-        States::active(),
+        States::active().disabled(disabled),
         theme,
     )
 }
@@ -913,14 +932,225 @@ mod tests {
             MenuItem::new("third"),
         ];
         assert_eq!(submenu_offset(&items, 0), 0.);
+        // Spec §7.3: 24 pt rows and an 11 pt separator row.
+        assert_eq!(submenu_offset(&items, 1), 24. + 11.);
+        assert_eq!(submenu_offset(&items, 2), 2. * 24. + 11.);
+    }
+
+    struct MenuHarness;
+
+    impl Render for MenuHarness {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            div().size_full().p(rems(1.)).child(menu(
+                "metrics-menu",
+                button("menu-trigger", "Open", ButtonVariant::Secondary, cx)
+                    .debug_selector(|| "menu-trigger".into()),
+                vec![
+                    MenuItem::new("New workspace"),
+                    MenuItem::new("Export").separator_before().submenu(vec![
+                        (10, MenuItem::new("PDF")),
+                        (11, MenuItem::new("Image")),
+                    ]),
+                    MenuItem::new("Unavailable").disabled(true),
+                ],
+                |_, _, _| {},
+            ))
+        }
+    }
+
+    /// The quad painted exactly over `bounds` with a background.
+    fn quad_over(cx: &mut VisualTestContext, bounds: Bounds<Pixels>) -> gpui_kit::Quad {
+        cx.update(|window, _| {
+            let bounds = bounds.scale(window.scale_factor());
+            window
+                .painted_quads()
+                .into_iter()
+                .find(|quad| quad.bounds == bounds && quad.background.as_solid().is_some())
+                .unwrap_or_else(|| panic!("a quad painted over {bounds:?}"))
+        })
+    }
+
+    /// Spec §7.3 (C25): rows 24 tall, inset 5 / 5.5 from the panel's leading
+    /// and trailing edges, 5 above the first and below the last row, an 11 pt
+    /// separator row, panel radius 13 and highlight radius 6.5, on 1x and 2x
+    /// displays at 100% and 200% zoom, for the menu and its submenu.
+    #[gpui_kit::test]
+    fn menu_and_submenu_rows_and_padding_match_c25(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            crate::init(cx);
+            cx.set_reduce_motion(true);
+        });
+        let (view, cx) = cx.add_window_view(|window, _| {
+            window.resize(size(px(900.), px(700.)));
+            MenuHarness
+        });
+        cx.update(|window, _| window.activate_window());
+        let close = |actual: Pixels, points: f32, zoom: f32, what: &str| {
+            assert!(
+                (actual.as_f32() - points * zoom).abs() <= 0.5 + 1e-3,
+                "{what}: {actual:?} vs {points} pt at {zoom}x zoom"
+            );
+        };
+        for (scale, zoom) in [(1f32, 1f32), (1., 2.), (2., 1.), (2., 2.)] {
+            cx.simulate_scale_factor_change(scale);
+            cx.update(|window, cx| {
+                window.set_rem_size(px(16. * zoom));
+                view.update(cx, |_, cx| cx.notify());
+                window.draw(cx).clear(cx);
+            });
+            crate::native::take_popup_radii();
+            let trigger = cx.debug_bounds("menu-trigger").unwrap().center();
+            cx.simulate_click(trigger, Default::default());
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            let panel = cx.debug_bounds("macos-menu-content").expect("menu opens");
+            let rows: Vec<_> = [
+                "macos-menu-item-0",
+                "macos-menu-item-1",
+                "macos-menu-item-2",
+            ]
+            .map(|row| cx.debug_bounds(row).unwrap())
+            .to_vec();
+            for (i, row) in rows.iter().enumerate() {
+                let what = format!("{scale}x row {i}");
+                close(row.size.height, 24., zoom, &what);
+                close(row.left() - panel.left(), 5., zoom, &what);
+                close(panel.right() - row.right(), 5.5, zoom, &what);
+            }
+            close(rows[0].top() - panel.top(), 5., zoom, "top padding");
+            close(
+                panel.bottom() - rows[2].bottom(),
+                5.,
+                zoom,
+                "bottom padding",
+            );
+            close(rows[1].top() - rows[0].bottom(), 11., zoom, "separator row");
+            close(rows[2].top() - rows[1].bottom(), 0., zoom, "no row gap");
+            let surface = quad_over(cx, panel);
+            close(
+                px(surface.corner_radii.top_left.0 / scale),
+                13.,
+                zoom,
+                "panel radius",
+            );
+
+            // The pointer highlights a row: accent with a 6.5 radius.
+            cx.simulate_mouse_move(rows[1].center(), None, Default::default());
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            let highlight = quad_over(cx, rows[1]);
+            let theme = cx.update(|_, cx| cx.macos().clone());
+            assert_eq!(highlight.background.as_solid(), Some(theme.accent));
+            close(
+                px(highlight.corner_radii.top_left.0 / scale),
+                6.5,
+                zoom,
+                "highlight radius",
+            );
+
+            // Hovering the parent row opened its submenu beside it.
+            let submenu = cx.debug_bounds("macos-submenu-content").expect("submenu");
+            let child = cx.debug_bounds("macos-submenu-item-0").unwrap();
+            let last = cx.debug_bounds("macos-submenu-item-1").unwrap();
+            close(child.size.height, 24., zoom, "submenu row");
+            close(child.left() - submenu.left(), 5., zoom, "submenu leading");
+            close(
+                submenu.right() - child.right(),
+                5.5,
+                zoom,
+                "submenu trailing",
+            );
+            close(child.top() - submenu.top(), 5., zoom, "submenu top");
+            close(submenu.bottom() - last.bottom(), 5., zoom, "submenu bottom");
+            close(child.top() - rows[1].top(), 0., zoom, "submenu lines up");
+            let surface = quad_over(cx, submenu);
+            close(
+                px(surface.corner_radii.top_left.0 / scale),
+                13.,
+                zoom,
+                "submenu radius",
+            );
+
+            // Every panel declares the menu radius for its glass at the zoom.
+            let radii = crate::native::take_popup_radii();
+            assert!(!radii.is_empty());
+            assert!(radii.iter().all(|r| *r == px(13. * zoom)), "{radii:?}");
+
+            cx.simulate_keystrokes("escape");
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            assert!(cx.debug_bounds("macos-menu-content").is_none());
+        }
+    }
+
+    /// Review M5 #2: one cursor paints the highlight. Pointer on row 0,
+    /// Down moves the highlight to row 1 alone; moving the resting pointer
+    /// takes it back to row 0 alone; leaving the menu keeps it there.
+    #[gpui_kit::test]
+    fn pointer_and_keyboard_share_one_menu_highlight(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            crate::init(cx);
+            cx.set_reduce_motion(true);
+        });
+        let (_, cx) = cx.add_window_view(|window, _| {
+            window.resize(size(px(900.), px(700.)));
+            MenuHarness
+        });
+        cx.update(|window, cx| {
+            window.activate_window();
+            window.draw(cx).clear(cx);
+        });
+        let trigger = cx.debug_bounds("menu-trigger").unwrap().center();
+        cx.simulate_click(trigger, Default::default());
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let accent = cx.update(|_, cx| cx.macos().accent);
+        let rows =
+            ["macos-menu-item-0", "macos-menu-item-1"].map(|row| cx.debug_bounds(row).unwrap());
+        let highlighted = |cx: &mut VisualTestContext| {
+            rows.map(|row| {
+                cx.update(|window, _| {
+                    let row = row.scale(window.scale_factor());
+                    window.painted_quads().into_iter().any(|quad| {
+                        quad.bounds == row && quad.background.as_solid() == Some(accent)
+                    })
+                })
+            })
+        };
+        let draw = |cx: &mut VisualTestContext| cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.simulate_mouse_move(rows[0].center(), None, Default::default());
+        draw(cx);
+        assert_eq!(highlighted(cx), [true, false], "pointer");
+        cx.simulate_keystrokes("down");
+        draw(cx);
         assert_eq!(
-            submenu_offset(&items, 1),
-            ROW_HEIGHT + ROW_GAP + SEPARATOR_HEIGHT
+            highlighted(cx),
+            [false, true],
+            "keyboard, pointer resting on row 0"
         );
-        assert_eq!(
-            submenu_offset(&items, 2),
-            2. * (ROW_HEIGHT + ROW_GAP) + SEPARATOR_HEIGHT
+        cx.simulate_mouse_move(
+            rows[0].center() + point(px(3.), px(0.)),
+            None,
+            Default::default(),
         );
+        draw(cx);
+        assert_eq!(highlighted(cx), [true, false], "pointer again");
+        // Leaving the menu keeps the highlight on the last row.
+        let panel = cx.debug_bounds("macos-menu-content").unwrap();
+        cx.simulate_mouse_move(
+            panel.bottom_right() + point(px(40.), px(40.)),
+            None,
+            Default::default(),
+        );
+        draw(cx);
+        assert_eq!(highlighted(cx), [true, false], "pointer left the menu");
+    }
+
+    #[test]
+    fn menu_rows_paint_through_the_menu_item_role() {
+        let theme = crate::Theme::light();
+        let paint = |highlighted, disabled, part| menu_paint(highlighted, disabled, part, &theme);
+        assert_eq!(paint(true, false, Part::Fill), theme.accent);
+        assert_eq!(paint(true, false, Part::Label), theme.on_accent);
+        assert_eq!(paint(false, false, Part::Label), theme.foreground);
+        assert_eq!(paint(true, true, Part::Fill).a, 0.);
+        assert_eq!(paint(false, true, Part::Label), theme.tertiary_label());
     }
 
     #[test]

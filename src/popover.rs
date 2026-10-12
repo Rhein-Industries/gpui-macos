@@ -2,6 +2,7 @@
 use crate::ActiveTheme;
 use crate::NativeTextStyle as _;
 use crate::motion::{POPUP_FADE, animated_duration, out_cubic};
+use crate::tokens::{POPOVER_PADDING, POPOVER_RADIUS, pt};
 use gpui_kit::base::motion::Presence;
 use gpui_kit::base::{Popover, PopoverState};
 use gpui_kit::rems;
@@ -45,7 +46,11 @@ pub fn popover<E: IntoElement>(
             div()
                 .key_context("macOSPopoverContent")
                 .opacity(opacity)
-                .child(presented_popover_surface(window, cx).child(body))
+                .child(
+                    presented_popover_surface(window, cx)
+                        .debug_selector(|| "macos-popover-surface".into())
+                        .child(body),
+                )
         })
 }
 
@@ -69,6 +74,8 @@ pub(crate) fn popup_fade(id: &ElementId, window: &mut Window, cx: &mut App) -> f
 }
 
 /// macOS popup chrome. Content remains free to use forms, rows, and actions.
+///
+/// Spec §7.4 (C26): radius 16 and SwiftUI's `.padding()` of 16, with no arrow.
 pub fn popover_surface(cx: &App) -> Div {
     let t = cx.macos();
     div()
@@ -77,9 +84,9 @@ pub fn popover_surface(cx: &App) -> Div {
         .gap(rems(0.875))
         .w(rems(17.5))
         .max_w(gpui_kit::relative(1.))
-        .p(rems(0.875))
+        .p(pt(POPOVER_PADDING))
         .border_1()
-        .rounded(rems(0.875))
+        .rounded(pt(POPOVER_RADIUS))
         .border_color(t.glass_border())
         .bg(t.glass_fill())
         .shadow(t.popover_shadow())
@@ -88,9 +95,12 @@ pub fn popover_surface(cx: &App) -> Div {
         .native_text_style(crate::TextStyle::Body, cx.macos())
 }
 
-/// Chrome for either an inline fallback or a real native popup window.
+/// Chrome for either an inline fallback or a real native popup window. In a
+/// glass popup the glass is the surface, so it declares the popover radius
+/// (spec §7.4, plan D13).
 pub(crate) fn presented_popover_surface(window: &Window, cx: &App) -> Div {
     let surface = popover_surface(cx);
+    crate::native::set_popup_corner_radius(window, POPOVER_RADIUS);
     if crate::native::is_glass_popup(window) {
         surface
             .bg(gpui_kit::transparent_black())
@@ -207,6 +217,71 @@ mod tests {
             assert!(view.read(cx).trigger.is_focused(window));
         });
         assert!(cx.debug_bounds("test-popover-content").is_none());
+    }
+
+    /// Spec §7.4 (C26): radius 16 and padding 16 (inside the inline
+    /// fallback's hairline border), no arrow, and the glass radius declared
+    /// at the owner's zoom. On 1x and 2x displays at 100% and 200% zoom.
+    #[gpui_kit::test]
+    fn popover_radius_and_padding_match_c26(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            crate::init(cx);
+            cx.set_reduce_motion(true);
+        });
+        let (view, cx) = cx.add_window_view(|_, cx| Harness {
+            trigger: cx.focus_handle(),
+            checked: false,
+            checkbox_focus: cx.focus_handle(),
+        });
+        for (scale, zoom) in [(1f32, 1f32), (1., 2.), (2., 1.), (2., 2.)] {
+            cx.simulate_scale_factor_change(scale);
+            cx.update(|window, cx| {
+                window.set_rem_size(gpui_kit::px(16. * zoom));
+                view.read(cx).trigger.clone().focus(window, cx);
+                window.refresh();
+                window.draw(cx).clear(cx);
+            });
+            crate::native::take_popup_radii();
+            cx.simulate_keystrokes("enter");
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            let surface = cx.debug_bounds("macos-popover-surface").expect("open");
+            let content = cx.debug_bounds("test-popover-content").unwrap();
+            let border = 1.;
+            let what = format!("{scale}x {zoom}");
+            for (inset, side) in [
+                (content.left() - surface.left(), "leading"),
+                (content.top() - surface.top(), "top"),
+                (surface.right() - content.right(), "trailing"),
+                (surface.bottom() - content.bottom(), "bottom"),
+            ] {
+                assert!(
+                    (inset.as_f32() - border - 16. * zoom).abs() <= 0.5,
+                    "{what} {side} padding {inset:?}"
+                );
+            }
+            cx.update(|window, _| {
+                let scaled = surface.scale(window.scale_factor());
+                let quad = window
+                    .painted_quads()
+                    .into_iter()
+                    .find(|quad| quad.bounds == scaled && quad.background.as_solid().is_some())
+                    .unwrap_or_else(|| panic!("{what}: surface quad"));
+                let radius = quad.corner_radii.top_left.0 / scale;
+                assert!(
+                    (radius - 16. * zoom).abs() <= 0.5,
+                    "{what}: radius {radius}"
+                );
+            });
+            let radii = crate::native::take_popup_radii();
+            assert!(!radii.is_empty());
+            assert!(
+                radii.iter().all(|r| *r == gpui_kit::px(16. * zoom)),
+                "{what}: {radii:?}"
+            );
+            cx.simulate_keystrokes("escape");
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            assert!(cx.debug_bounds("macos-popover-surface").is_none());
+        }
     }
 
     #[gpui_kit::test]

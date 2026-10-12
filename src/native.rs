@@ -51,6 +51,93 @@ pub fn is_glass_popup(window: &Window) -> bool {
     }
 }
 
+/// Declare the corner radius, in points, of the glass popup presenting this
+/// content: 13 for menus and 16 for popovers (spec §7.3–7.4, plan D13).
+///
+/// Only a declaration made while the portal renders a popup's own content
+/// counts, and it applies to that popup's panel alone (see
+/// [`popup_radius_scope`]). Base also runs content factories in the owner
+/// window to measure them, and a nested popup's factory runs inside its
+/// outer popup's window; those calls fall outside the scope and change
+/// nothing. Panels opened directly with [`open_glass_panel`] keep their
+/// caller's `corner_radius`. Inline chrome can therefore call this
+/// unconditionally. The radius is points at the window's rem size, which
+/// the portal sets to the owner's, so it follows the owner's zoom.
+pub(crate) fn set_popup_corner_radius(window: &Window, points: f32) {
+    let radius = native_corner_radius(
+        crate::tokens::pt(points).into(),
+        window.rem_size(),
+        window.viewport_size(),
+    );
+    #[cfg(test)]
+    POPUP_RADII.with(|radii| radii.borrow_mut().push(radius));
+    let id = window.window_handle().window_id();
+    POPUP_SCOPE.with(|scope| {
+        if let Some((scope_window, declared)) = scope.borrow_mut().last_mut()
+            && *scope_window == id
+        {
+            *declared = Some(radius);
+        }
+    });
+}
+
+thread_local! {
+    /// The popup windows whose own content is being built, innermost last,
+    /// with the radius their content declared.
+    static POPUP_SCOPE: std::cell::RefCell<Vec<(gpui_kit::WindowId, Option<Pixels>)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Run `build` as the content of the popup in `window` and return the radius
+/// it declared through [`set_popup_corner_radius`], if any.
+pub(crate) fn popup_radius_scope<R>(
+    window: gpui_kit::WindowId,
+    build: impl FnOnce() -> R,
+) -> (R, Option<Pixels>) {
+    POPUP_SCOPE.with(|scope| scope.borrow_mut().push((window, None)));
+    let result = build();
+    let declared = POPUP_SCOPE
+        .with(|scope| scope.borrow_mut().pop())
+        .and_then(|(_, r)| r);
+    (result, declared)
+}
+
+/// Give the glass of the popup hosting `window` the declared `radius`. Does
+/// nothing unless the window's content view is the popup glass.
+pub(crate) fn apply_popup_corner_radius(window: &Window, radius: Pixels) {
+    #[cfg(test)]
+    APPLIED_RADII.with(|radii| {
+        radii
+            .borrow_mut()
+            .push((window.window_handle().window_id(), radius))
+    });
+    #[cfg(target_os = "macos")]
+    macos::set_popup_corner_radius(window, radius);
+    #[cfg(not(target_os = "macos"))]
+    let _ = (window, radius);
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Every radius [`set_popup_corner_radius`] resolved on this test thread.
+    static POPUP_RADII: std::cell::RefCell<Vec<Pixels>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// Every radius applied to a popup window on this test thread.
+    static APPLIED_RADII: std::cell::RefCell<Vec<(gpui_kit::WindowId, Pixels)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Drain the radii declared since the last call (tests only).
+#[cfg(test)]
+pub(crate) fn take_popup_radii() -> Vec<Pixels> {
+    POPUP_RADII.with(|radii| std::mem::take(&mut *radii.borrow_mut()))
+}
+
+/// Drain the radii applied to popup windows since the last call (tests only).
+#[cfg(test)]
+pub(crate) fn take_applied_radii() -> Vec<(gpui_kit::WindowId, Pixels)> {
+    APPLIED_RADII.with(|radii| std::mem::take(&mut *radii.borrow_mut()))
+}
+
 /// AppKit source-list dimensions in logical points. Native rows follow the
 /// system sidebar size preference; portable/headless views use the regular size.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -448,6 +535,38 @@ mod tests {
             native_corner_radius(px(f32::NAN).into(), px(16.), bounds),
             Pixels::ZERO
         );
+    }
+
+    struct RadiusHarness(f32);
+
+    impl Render for RadiusHarness {
+        fn render(&mut self, window: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            set_popup_corner_radius(window, self.0);
+            div()
+        }
+    }
+
+    /// Plan D13: the declared radius is points at the window's zoom, clamped
+    /// to a capsule for a panel smaller than twice the radius.
+    #[gpui_kit::test]
+    fn popup_radius_is_zoom_scaled_and_clamped(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let (_, cx) = cx.add_window_view(|_, _| RadiusHarness(16.));
+        for (zoom, height, expected) in [
+            (1f32, 200f32, 16f32),
+            (2., 200., 32.),
+            (1.5, 200., 24.),
+            (2., 40., 20.),
+        ] {
+            cx.simulate_resize(size(px(300.), px(height)));
+            take_popup_radii();
+            cx.update(|window, cx| {
+                window.set_rem_size(px(16. * zoom));
+                window.refresh();
+                window.draw(cx).clear(cx);
+            });
+            assert_eq!(take_popup_radii().last(), Some(&px(expected)), "{zoom}x");
+        }
     }
 
     impl Render for FallbackHarness {

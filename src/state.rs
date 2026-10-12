@@ -73,8 +73,8 @@ pub(crate) enum PaintRole {
     },
     /// A toolbar item: a hover disc and no bezel (§6.5, C17, C28).
     ToolbarItem,
-    /// A menu, select or combobox popup row (D10). The highlight follows the
-    /// pointer and the keyboard cursor; its values are finalised in M5.
+    /// A menu, submenu, select or combobox popup row (§7.3, C25, D10). The
+    /// highlight follows the pointer and the keyboard cursor.
     MenuItem { highlighted: bool },
 }
 
@@ -426,19 +426,28 @@ pub(crate) fn paint(role: PaintRole, part: Part, states: States, theme: &Theme) 
             false => label,
         },
 
-        // Menu rows keep the pre-M5 highlight: accent with a white label, and
-        // a neutral highlight in an inactive window (D10; M5 finalises it).
+        // §7.3 (C25, D10): the highlight is `controlAccentColor` (#007AFF
+        // exactly for the default accent) with a white label. Menus are key
+        // while open; an inline fallback in an inactive window keeps a
+        // neutral highlight. Destructive items are not red. Disabled items
+        // are not measured (O): no highlight and the tertiary label (§8.2).
         (PaintRole::MenuItem { highlighted: false }, Part::Fill) => transparent_black(),
-        (PaintRole::MenuItem { highlighted: true }, Part::Fill) => match active {
-            true => theme.accent,
-            false => theme
-                .control_fill()
-                .blend(label.opacity(if dark { 0.1 } else { 0.08 })),
+        (PaintRole::MenuItem { highlighted: true }, Part::Fill) => match (disabled, active) {
+            (true, _) => transparent_black(),
+            (false, true) => theme.accent,
+            (false, false) => {
+                theme
+                    .control_fill()
+                    .blend(label.opacity(if dark { 0.1 } else { 0.08 }))
+            }
         },
-        (PaintRole::MenuItem { highlighted }, Part::Label) => match (highlighted, active) {
-            (true, true) => white,
-            _ => label,
-        },
+        (PaintRole::MenuItem { highlighted }, Part::Label) => {
+            match (disabled, highlighted && active) {
+                (true, _) => theme.tertiary_label(),
+                (false, true) => white,
+                (false, false) => label,
+            }
+        }
 
         // Parts a role does not paint.
         (

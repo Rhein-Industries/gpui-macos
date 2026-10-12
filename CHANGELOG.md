@@ -1,5 +1,51 @@
 # Changelog
 
+## Unreleased — M5 menus, tooltips, popovers
+
+### Changed
+
+- Menus and submenus use native metrics (spec §7.3): rows are 24 pt (was
+  28 pt plus a 2 pt gap). Rows sit 5 pt from the leading edge, 5.5 pt from
+  the trailing edge and 5 pt from the top and bottom (was 6 pt inside the
+  border). The panel radius is 13 (was 12), the highlight radius 6.5 (was 6)
+  and a separator row 11 pt (was 9). Text is 13 pt. The highlight is the
+  accent with a white label, under the pointer and on the keyboard cursor.
+  Disabled items use the tertiary label color instead of dimming the whole
+  row to 45%. Destructive items are not red. The inline submenu is now
+  opaque, like the menu.
+- Select and combobox popups follow the same rule (decision D10): 24 pt rows,
+  the same 5 / 5.5 / 5 pt insets, radius 13, highlight radius 6.5, an 8 pt
+  label inset (was 6) and 13 pt menu text. They use the accent highlight for
+  the pointer and the keyboard cursor. Disabled options use the tertiary
+  label color instead of 45% dimming.
+- Tooltips are 20 pt tall (was 28) with radius 5 (was 6) and no border.
+  Text is 11 pt in the label color. They use the tooltip's own material:
+  #E7E7E7 @0.898 in light and #3A3A3A @0.828 in dark (was the generic glass
+  fill). Under Reduce Transparency the same tint is opaque.
+- Popovers have radius 16 (was 14) and padding 16 (was 14), with no arrow.
+  This shifts the layout of content inside `popover`, `popover_surface`,
+  hover cards and the color picker popup by 2 pt per side.
+- Popups that the library presents in native glass (menus, submenus,
+  select and combobox popups, popovers, hover cards and the color picker)
+  now get their corner radius from their own content, at the owner's zoom:
+  13 for menus, submenus and select or combobox popups, and 16 for popovers,
+  hover cards and the color picker. Before, these popups all used the
+  `GlassPanelOptions` default of 14. The declared radius is passed to the
+  glass when it is installed, after the panel's first content frame; this
+  is covered by tests but not yet confirmed on screen. A popup opened from inside another popup changes only its
+  own panel. Panels that applications open with `open_glass_panel` keep the
+  `corner_radius` they pass. The `GlassPanelOptions` API and its default of
+  14 are unchanged. The public `popover_surface(cx)` only sets the drawn
+  radius and padding; it does not declare a glass radius. The date picker's
+  calendar popup keeps 14.
+- Menu, submenu, select and combobox rows have one highlight: the row
+  cursor. The keyboard and the pointer both move it, so a resting pointer no
+  longer leaves a second highlighted row after an arrow key.
+- SwiftUI reference app: popovers use 16 pt padding (`.padding()`), and the
+  mirrored help tag uses the measured tooltip (20 pt, radius 5, no border,
+  tooltip material, opaque under Reduce Transparency), so both apps compare
+  the same targets.
+
 ## Unreleased — M4 focus ring, hover, selection
 
 ### Added

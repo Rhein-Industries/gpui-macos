@@ -110,6 +110,29 @@ pub(super) fn is_glass_popup(window: &Window) -> bool {
         .is_some_and(|view| view.isKindOfClass(class))
 }
 
+/// Update the glass of the popup hosting `window`, if it is one. The glass
+/// view is the window's content view (see [`GlassPopup::new`]) and clips the
+/// GPUI foreground, so one setter changes both the material and the clip.
+/// Repeated declarations of the same radius do no AppKit work.
+pub(super) fn set_popup_corner_radius(window: &Window, radius: Pixels) {
+    if AnyClass::get(c"NSGlassEffectView").is_none() {
+        return;
+    }
+    let Some(view) = native_window(window)
+        .ok()
+        .and_then(|window| window.contentView())
+    else {
+        return;
+    };
+    let Some(glass) = view.downcast_ref::<NSGlassEffectView>() else {
+        return;
+    };
+    let radius = f64::from(f32::from(radius));
+    if glass.cornerRadius() != radius {
+        glass.setCornerRadius(radius);
+    }
+}
+
 define_class!(
     // SAFETY: NSView has no extra subclassing invariants. All methods run on
     // the main thread, and hitTest: exactly matches AppKit's method signature.

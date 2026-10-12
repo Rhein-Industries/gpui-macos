@@ -1,10 +1,16 @@
 //! Select and searchable Combobox presentations over the controlled base roots.
 use crate::NativeTextStyle as _;
+use crate::state::{PaintRole, Part, States, paint};
+use crate::tokens::{
+    BORDER_1, MENU_HIGHLIGHT_INSET, MENU_HIGHLIGHT_RADIUS, MENU_PADDING_Y, MENU_RADIUS,
+    MENU_ROW_HEIGHT, MENU_ROW_PADDING_X, pt,
+};
 use crate::{ActiveTheme, ButtonVariant, IconName, button, icon, input};
 use gpui_kit::base::{Combobox, ElementExt as _, Popup, Select, input::InputState};
 use gpui_kit::rems;
 use gpui_kit::{
-    App, Context, ElementId, Entity, FocusHandle, Focusable, SharedString, Window, div, prelude::*,
+    App, Context, ElementId, Entity, FocusHandle, Focusable, Pixels, SharedString, Window, div,
+    prelude::*,
 };
 use std::{cell::RefCell, rc::Rc};
 
@@ -146,7 +152,7 @@ impl ChoiceState {
         *cache = Some((query, visible.clone()));
         visible
     }
-    fn set_open(&mut self, open: bool, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn set_open(&mut self, open: bool, window: &mut Window, cx: &mut Context<Self>) {
         if self.disabled || self.open == open {
             return;
         }
@@ -474,21 +480,32 @@ fn choice_content(
     }
     let close = state.clone();
     let confirm = state.clone();
+    // Popup chrome follows the menu (spec §7.3, C25, D10): rows inset 5 / 5.5
+    // from the outer edges and 5 above and below, radius 13, 13 pt text.
+    let native = crate::native::is_glass_popup(window);
+    crate::native::set_popup_corner_radius(window, MENU_RADIUS);
+    let border = if native { Pixels::ZERO } else { BORDER_1 };
+    let rem = window.rem_size();
+    let inset = |points: f32| (pt(points).to_pixels(rem) - border).max(Pixels::ZERO);
+    let (leading, trailing) = MENU_HIGHLIGHT_INSET;
     let mut content = div()
         .id("choice-popup")
         .debug_selector(|| "macos-choice-popup".into())
         .track_focus(&focus)
         .w(popup_width)
         .max_w(gpui_kit::relative(1.))
-        .p(rems(0.375))
+        .pt(inset(MENU_PADDING_Y))
+        .pb(inset(MENU_PADDING_Y))
+        .pl(inset(leading))
+        .pr(inset(trailing))
         .border_1()
-        .rounded(rems(0.75))
+        .rounded(pt(MENU_RADIUS))
         .border_color(t.glass_border())
         .shadow(t.popover_shadow())
         .bg(t.surface)
         .text_color(t.foreground)
         .font_family(t.font.clone())
-        .native_text_style(crate::TextStyle::Body, cx.macos())
+        .native_text_style(crate::TextStyle::MenuItem, cx.macos())
         .flex()
         .flex_col()
         .gap(rems(0.375))
@@ -531,11 +548,11 @@ fn choice_content(
                     .collect()
             })
             .w_full()
-            .h(rems((count as f32 * 1.5).min(14.)))
+            .h(pt((count as f32 * MENU_ROW_HEIGHT).min(224.)))
             .track_scroll(&scroll),
         )
     };
-    if crate::native::is_glass_popup(window) {
+    if native {
         content = content
             .bg(gpui_kit::transparent_black())
             .border_0()
@@ -555,15 +572,28 @@ fn choice_option(
     let cursor = choice.cursor;
     let selected = choice.selected;
     let t = cx.macos();
-    // Popup rows follow the MenuItem rule (D10); M5 finalises its values.
-    let highlight = crate::state::PaintRole::MenuItem { highlighted: true };
-    let states = crate::state::States::in_window(window);
-    let cursor_fill = crate::state::paint(highlight, crate::state::Part::Fill, states, t);
-    let cursor_text = crate::state::paint(highlight, crate::state::Part::Label, states, t);
+    // Popup rows follow the MenuItem rule (spec §7.3, C25, D10): 24 pt rows,
+    // highlight radius 6.5, accent with a white label on the cursor, which
+    // the keyboard and the pointer both move; disabled rows keep the
+    // tertiary label.
+    let highlighted = cursor == Some(index);
+    let role = |highlighted| PaintRole::MenuItem { highlighted };
+    let states = States::in_window(window).disabled(item.disabled);
+    let fill = |highlighted| paint(role(highlighted), Part::Fill, states, t);
+    let text = |highlighted| paint(role(highlighted), Part::Label, states, t);
     let target = state.clone();
     let hover = state.clone();
+    let point_at = Rc::new(move |window: &mut Window, cx: &mut App| {
+        hover.update(cx, |state, cx| {
+            if !state.items[index].disabled && state.cursor != Some(index) {
+                state.cursor = Some(index);
+                cx.notify();
+                window.refresh();
+            }
+        });
+    });
     button(("choice-option", index), "", ButtonVariant::Secondary, cx)
-        .paint_role(crate::state::PaintRole::Custom)
+        .paint_role(role(highlighted))
         .fill_duration(std::time::Duration::ZERO)
         .accessibility_label(item.label.clone())
         .debug_selector(move || format!("macos-choice-option-{index}"))
@@ -572,27 +602,22 @@ fn choice_option(
         .when(cursor == Some(index), |row| row.aria_active_descendant())
         .focusable(false)
         .disabled(item.disabled)
+        .styles(|s| s.disabled(|s| s.opacity(1.)))
         .w_full()
-        .h(rems(1.5))
+        .h(pt(MENU_ROW_HEIGHT))
+        .min_h(pt(MENU_ROW_HEIGHT))
         .py(rems(0.))
-        .px(rems(0.375))
+        .px(pt(MENU_ROW_PADDING_X))
         .gap(rems(0.375))
         .justify_start()
-        .rounded(rems(0.375))
+        .rounded(pt(MENU_HIGHLIGHT_RADIUS))
         .border_color(t.foreground.opacity(0.))
         .shadow(Vec::new())
-        .bg(if cursor == Some(index) {
-            cursor_fill
-        } else {
-            t.foreground.opacity(0.)
-        })
-        .text_color(if cursor == Some(index) {
-            cursor_text
-        } else {
-            t.foreground
-        })
-        .hover(|s| s.bg(cursor_fill).text_color(cursor_text))
-        .active(|s| s.bg(cursor_fill).text_color(cursor_text))
+        .native_text_style(crate::TextStyle::MenuItem, t)
+        // The cursor alone paints the highlight; the pointer moves it, so
+        // the keyboard and the pointer never highlight two rows.
+        .bg(fill(highlighted))
+        .text_color(text(highlighted))
         .child(
             div()
                 .flex_1()
@@ -608,17 +633,17 @@ fn choice_option(
                     mark.child(icon(IconName::Check).size(rems(0.875)))
                 }),
         )
-        .on_hover(move |hovered, window, cx| {
-            if *hovered {
-                hover.update(cx, |state, cx| {
-                    if !state.items[index].disabled && state.cursor != Some(index) {
-                        state.cursor = Some(index);
-                        cx.notify();
-                        window.refresh();
-                    }
-                });
+        .on_hover({
+            let point = point_at.clone();
+            move |hovered, window, cx| {
+                if *hovered {
+                    point(window, cx);
+                }
             }
         })
+        // A resting pointer the keyboard moved away from takes the cursor
+        // back when it moves again.
+        .on_mouse_move(move |_, window, cx| point_at(window, cx))
         .on_click(move |_, window, cx| {
             target.update(cx, |state, cx| {
                 state.cursor = Some(index);
@@ -907,6 +932,149 @@ mod tests {
                 "Reopening reveals the selected option"
             );
         }
+    }
+
+    /// The quad painted exactly over `bounds` with a background, if any.
+    fn quad_over(
+        cx: &mut VisualTestContext,
+        bounds: gpui_kit::Bounds<gpui_kit::Pixels>,
+    ) -> Option<gpui_kit::Quad> {
+        cx.update(|window, _| {
+            let bounds = bounds.scale(window.scale_factor());
+            window
+                .painted_quads()
+                .into_iter()
+                .find(|quad| quad.bounds == bounds && quad.background.as_solid().is_some())
+        })
+    }
+
+    /// D10: popup rows follow the menu (spec §7.3, C25): 24 pt rows inset
+    /// 5 / 5.5 and 5 pt from the popup edges, radius 13, and the accent
+    /// highlight (radius 6.5) on the keyboard cursor and under the pointer,
+    /// never on a disabled row. On 1x and 2x displays at 100% and 200% zoom.
+    #[gpui_kit::test]
+    fn select_popup_highlight_and_rows_follow_the_menu(cx: &mut TestAppContext) {
+        let (state, cx) = harness(cx, false, false);
+        cx.update(|window, _| window.activate_window());
+        let accent = cx.update(|_, cx| cx.macos().accent);
+        let close = |actual: gpui_kit::Pixels, points: f32, zoom: f32, what: &str| {
+            assert!(
+                (actual.as_f32() - points * zoom).abs() <= 0.5 + 1e-3,
+                "{what}: {actual:?} vs {points} pt at {zoom}x zoom"
+            );
+        };
+        let highlighted = |cx: &mut VisualTestContext, row| {
+            quad_over(cx, row)
+                .and_then(|quad| quad.background.as_solid())
+                .is_some_and(|fill| fill == accent)
+        };
+        for (scale, zoom) in [(1f32, 1f32), (1., 2.), (2., 1.), (2., 2.)] {
+            cx.simulate_scale_factor_change(scale);
+            cx.update(|window, cx| {
+                window.set_rem_size(px(16. * zoom));
+                window.refresh();
+                window.draw(cx).clear(cx);
+            });
+            crate::native::take_popup_radii();
+            cx.simulate_keystrokes("down");
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            assert!(cx.update(|_, cx| state.read(cx).open));
+            let popup = cx.debug_bounds("macos-choice-popup").unwrap();
+            let rows = [
+                "macos-choice-option-0",
+                "macos-choice-option-1",
+                "macos-choice-option-2",
+            ]
+            .map(|row| cx.debug_bounds(row).unwrap());
+            for row in rows {
+                close(row.size.height, 24., zoom, "row height");
+                close(row.left() - popup.left(), 5., zoom, "leading inset");
+                close(popup.right() - row.right(), 5.5, zoom, "trailing inset");
+            }
+            close(rows[0].top() - popup.top(), 5., zoom, "top padding");
+            close(
+                popup.bottom() - rows[2].bottom(),
+                5.,
+                zoom,
+                "bottom padding",
+            );
+            let surface = quad_over(cx, popup).unwrap();
+            close(
+                px(surface.corner_radii.top_left.0 / scale),
+                13.,
+                zoom,
+                "radius",
+            );
+            assert!(
+                crate::native::take_popup_radii()
+                    .iter()
+                    .all(|radius| *radius == px(13. * zoom))
+            );
+
+            // The keyboard cursor starts on the selected row.
+            assert!(highlighted(cx, rows[0]), "keyboard highlight");
+            let quad = quad_over(cx, rows[0]).unwrap();
+            close(
+                px(quad.corner_radii.top_left.0 / scale),
+                6.5,
+                zoom,
+                "highlight radius",
+            );
+            // A disabled row takes no highlight from the pointer.
+            cx.simulate_mouse_move(rows[1].center(), None, Default::default());
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            assert!(!highlighted(cx, rows[1]), "disabled rows stay plain");
+            // The pointer moves the highlight.
+            cx.simulate_mouse_move(rows[2].center(), None, Default::default());
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            assert!(highlighted(cx, rows[2]), "pointer highlight");
+            assert!(!highlighted(cx, rows[0]), "one highlight at a time");
+            assert_eq!(cx.update(|_, cx| state.read(cx).cursor), Some(2));
+
+            cx.simulate_keystrokes("escape");
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.update(|window, cx| state.read(cx).trigger_focus.clone().focus(window, cx));
+        }
+    }
+
+    /// Review M5 #2: one cursor paints the highlight. Pointer on row 2, Up
+    /// moves the highlight to row 0 alone; moving the resting pointer takes
+    /// it back to row 2 alone.
+    #[gpui_kit::test]
+    fn pointer_and_keyboard_share_one_select_highlight(cx: &mut TestAppContext) {
+        let (state, cx) = harness(cx, false, false);
+        cx.update(|window, _| window.activate_window());
+        let accent = cx.update(|_, cx| cx.macos().accent);
+        cx.simulate_keystrokes("down");
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let rows = ["macos-choice-option-0", "macos-choice-option-2"]
+            .map(|row| cx.debug_bounds(row).unwrap());
+        let highlighted = |cx: &mut VisualTestContext| {
+            rows.map(|row| {
+                quad_over(cx, row)
+                    .and_then(|quad| quad.background.as_solid())
+                    .is_some_and(|fill| fill == accent)
+            })
+        };
+        let draw = |cx: &mut VisualTestContext| cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.simulate_mouse_move(rows[1].center(), None, Default::default());
+        draw(cx);
+        assert_eq!(highlighted(cx), [false, true], "pointer");
+        cx.simulate_keystrokes("up");
+        draw(cx);
+        assert_eq!(cx.update(|_, cx| state.read(cx).cursor), Some(0));
+        assert_eq!(
+            highlighted(cx),
+            [true, false],
+            "keyboard, pointer resting on row 2"
+        );
+        cx.simulate_mouse_move(
+            rows[1].center() + gpui_kit::point(px(3.), px(0.)),
+            None,
+            Default::default(),
+        );
+        draw(cx);
+        assert_eq!(highlighted(cx), [false, true], "pointer again");
     }
 
     #[gpui_kit::test]

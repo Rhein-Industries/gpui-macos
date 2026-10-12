@@ -257,6 +257,15 @@ impl<V: Render + 'static> GlassPanelHandle<V> {
         })?
     }
 
+    /// The radius the panel was installed with (tests only).
+    #[cfg(test)]
+    pub(crate) fn corner_radius(&self, cx: &App) -> Pixels {
+        self.panel
+            .upgrade()
+            .map(|panel| panel.read(cx).options.corner_radius)
+            .expect("an open panel")
+    }
+
     pub fn dismiss(&self, cx: &mut App) -> anyhow::Result<()> {
         self.window
             .update(cx, |_, window, _| window.remove_window())
@@ -303,7 +312,22 @@ pub fn open_glass_panel<V: Render + 'static>(
     build: impl FnOnce(&mut Window, &mut App) -> Entity<V>,
     on_dismiss: impl Fn(&mut Window, &mut App) + 'static,
 ) -> anyhow::Result<GlassPanelHandle<V>> {
-    let options = options.checked()?;
+    open_glass_panel_with_radius(options, owner, cx, build, on_dismiss, None)
+}
+
+/// [`open_glass_panel`] whose content may declare the corner radius (plan
+/// D13). A radius the content declared into `declared` during the window's
+/// first frame (drawn inside `open_window`, before the glass is installed)
+/// replaces `options.corner_radius` in the options the glass is created with.
+pub(crate) fn open_glass_panel_with_radius<V: Render + 'static>(
+    options: GlassPanelOptions,
+    owner: &mut Window,
+    cx: &mut App,
+    build: impl FnOnce(&mut Window, &mut App) -> Entity<V>,
+    on_dismiss: impl Fn(&mut Window, &mut App) + 'static,
+    declared: Option<Rc<Cell<Option<Pixels>>>>,
+) -> anyhow::Result<GlassPanelHandle<V>> {
+    let mut options = options.checked()?;
     let owner_handle = owner.window_handle();
     let previous_focus = owner.focused(cx);
     let bounds = Bounds::new(
@@ -378,6 +402,12 @@ pub fn open_glass_panel<V: Render + 'static>(
         },
     )?;
     let panel_entity = panel_entity.expect("GPUI constructed the retained panel view");
+    // GPUI draws a new window once inside `open_window`, before the glass is
+    // installed, so the content has already declared its radius.
+    if let Some(radius) = declared.and_then(|declared| declared.get()) {
+        options.corner_radius = radius;
+        panel_entity.update(cx, |panel, _| panel.options.corner_radius = radius)?;
+    }
     let native = window.update(cx, |_, window, cx| {
         panel_entity.update(cx, |panel, cx| {
             #[cfg(target_os = "macos")]

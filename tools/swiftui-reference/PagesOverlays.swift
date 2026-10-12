@@ -30,8 +30,10 @@ private enum OverlayMetrics {
     /// Preview cards: 22.5 rem wide, 0.875 rem padding.
     static let cardWidth: CGFloat = 360
     static let cardPadding: CGFloat = 14
-    /// Popover surface: 17.5 rem including 0.875 rem padding.
+    /// Popover surface: 17.5 rem including its padding.
     static let popoverWidth: CGFloat = 280
+    /// Popover padding: SwiftUI's `.padding()` (spec C26).
+    static let popoverPadding: CGFloat = 16
     /// Dialog popup: 28.75 rem wide, 1.5 rem padding, 1.25 rem radius.
     static let dialogWidth: CGFloat = 460
     static let dialogPadding: CGFloat = 24
@@ -73,21 +75,30 @@ private extension View {
     }
 }
 
-/// AppKit help tags cannot be shown programmatically, so this mirrors one:
-/// 11 pt tooltip font on a rounded, bordered system surface.
+/// AppKit help tags cannot be shown programmatically, so this mirrors the
+/// measured one (spec C27): 11 pt tooltip font in the label colour, 20 pt
+/// tall, radius 5 and no border, on the tooltip's own material (opaque
+/// under Reduce Transparency, like the library).
 private struct HelpTag: View {
     let text: String
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    /// The tooltip's own material; the same tint opaque under Reduce Transparency.
+    private var fill: Color {
+        let dark = colorScheme == .dark
+        let tint: Double = dark ? 0x3A / 255 : 0xE7 / 255
+        let alpha = reduceTransparency ? 1 : (dark ? 0.828 : 0.898)
+        return Color(red: tint, green: tint, blue: tint).opacity(alpha)
+    }
 
     var body: some View {
         Text(text)
             .font(Font(NSFont.toolTipsFont(ofSize: 0)))
+            .foregroundStyle(Color(nsColor: .labelColor))
             .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
-            )
+            .frame(height: 20)
+            .background(fill, in: RoundedRectangle(cornerRadius: 5, style: .circular))
             .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
             .fixedSize()
     }
@@ -214,7 +225,7 @@ private struct PopoverPage: View {
                     Text("Sync workspace")
                 }
             }
-            .padding(OverlayMetrics.cardPadding)
+            .padding(OverlayMetrics.popoverPadding)
             .frame(width: OverlayMetrics.popoverWidth, alignment: .leading)
         }
         .presentsOnLaunch($shown)
@@ -489,7 +500,7 @@ private struct MaterialPage: View {
                         .foregroundStyle(.secondary)
                 }
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(OverlayMetrics.cardPadding)
+                .padding(OverlayMetrics.popoverPadding)
                 .frame(width: OverlayMetrics.popoverWidth, alignment: .leading)
             }
             .presentsOnLaunch($shown)

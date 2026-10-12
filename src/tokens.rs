@@ -205,6 +205,43 @@ pub(crate) const SIDEBAR_MATERIAL_INACTIVE: [u32; 2] = [0xf0f0f0, 0x282828];
 pub(crate) const SIDEBAR_MATERIAL_RT: [[u32; 2]; 2] = [[0xf6f6f6, 0xececec], [0x383838, 0x141414]];
 /// Toolbar item hover disc ink alpha (light / dark), spec §6.5 (C17, C28).
 pub(crate) const TOOLBAR_HOVER: [f32; 2] = [0.05, 0.04];
+
+// Menus, popovers and tooltips (spec §7.3–7.5). Values are points.
+
+/// Menu, submenu and select/combobox popup row height, spec §7.3 (C25).
+pub(crate) const MENU_ROW_HEIGHT: f32 = 24.;
+/// Menu panel vertical padding above the first and below the last row,
+/// spec §7.3 (C25).
+pub(crate) const MENU_PADDING_Y: f32 = 5.;
+/// Highlight inset from the panel's (leading, trailing) edges, spec §7.3 (C25).
+pub(crate) const MENU_HIGHLIGHT_INSET: (f32, f32) = (5., 5.5);
+/// Menu highlight corner radius, spec §7.3 and §4.1 (C25; estimate).
+pub(crate) const MENU_HIGHLIGHT_RADIUS: f32 = 6.5;
+/// Menu panel corner radius (light; dark measures 12.4), spec §7.3 and §4.1 (C25).
+pub(crate) const MENU_RADIUS: f32 = 13.;
+/// The width of GPUI's `border_1`, which inline popup fallbacks draw inside
+/// their measured outer edge.
+pub(crate) const BORDER_1: gpui_kit::Pixels = gpui_kit::px(1.);
+/// Menu row label inset inside the highlight. Not measured; kept from the
+/// pre-M5 menu so labels do not move.
+pub(crate) const MENU_ROW_PADDING_X: f32 = 8.;
+/// A separator row: its hairline centred in 11 pt, spec §7.3 (about 11 to 12;
+/// a 9-row pull-down measures 200 = 2 × 5 + 7 × 24 + 2 × 11).
+pub(crate) const MENU_SEPARATOR_HEIGHT: f32 = 11.;
+/// Popover corner radius, spec §7.4 and §4.1 (C26; estimate).
+pub(crate) const POPOVER_RADIUS: f32 = 16.;
+/// Popover content padding, SwiftUI `.padding()`, spec §9 (C26).
+pub(crate) const POPOVER_PADDING: f32 = 16.;
+/// Tooltip body height, spec §7.5 (C27).
+pub(crate) const TOOLTIP_HEIGHT: f32 = 20.;
+/// Tooltip corner radius (5.13 light, 5.5 dark), spec §7.5 and §4.1 (C27).
+pub(crate) const TOOLTIP_RADIUS: f32 = 5.;
+/// Tooltip label inset. Not measured; kept from the pre-M5 tooltip.
+pub(crate) const TOOLTIP_PADDING_X: f32 = 10.;
+/// The tooltip's own measured material (light, dark): tint and opacity,
+/// spec §7.5 (C27). Dark differs from the `toolTip` specimen in §7.1.
+const TOOLTIP_MATERIAL: [(u32, f32); 2] = [(0xe7e7e7, 0.898), (0x3a3a3a, 0.828)];
+
 /// Disabled dimming kept only for `PaintRole::Custom` buttons and adapters
 /// that paint their own look until M4/M5 give them roles (plan D6).
 pub(crate) const CUSTOM_DISABLED_OPACITY: f32 = 0.45;
@@ -324,6 +361,13 @@ impl Theme {
             }
         }
     }
+    /// The tooltip fill, spec §7.5 (C27): #E7E7E7 @0.898 / #3A3A3A @0.828,
+    /// opaque at the same tint under Reduce Transparency (policy: §7.6 has
+    /// no tooltip value).
+    pub(crate) fn tooltip_material(&self) -> Hsla {
+        let (tint, alpha) = TOOLTIP_MATERIAL[usize::from(self.is_dark())];
+        Hsla::from(rgb(tint)).opacity(if self.reduce_transparency { 1. } else { alpha })
+    }
     /// `tertiary_system_fill`, ink @0.047, spec §2A.2.
     pub fn tertiary_fill(&self) -> Hsla {
         ink(self).opacity(TERTIARY_FILL)
@@ -401,6 +445,41 @@ mod tests {
         assert_eq!(TABLE_HEADER_HEIGHT, 27.);
         assert_eq!(TABLE_SEPARATOR, 1.);
         assert_eq!((INSET_LIST_ROW_HEIGHT, SIDEBAR_IDEAL_WIDTH), (40., 220.));
+    }
+    #[test]
+    fn menu_popover_and_tooltip_tokens_match_spec_7_3_to_7_5() {
+        // §7.3 (C25).
+        assert_eq!(
+            (MENU_ROW_HEIGHT, MENU_PADDING_Y, MENU_RADIUS),
+            (24., 5., 13.)
+        );
+        assert_eq!(
+            (MENU_HIGHLIGHT_INSET, MENU_HIGHLIGHT_RADIUS),
+            ((5., 5.5), 6.5)
+        );
+        // A 9-row pull-down with two separators measures 200 pt.
+        assert_eq!(
+            2. * MENU_PADDING_Y + 7. * MENU_ROW_HEIGHT + 2. * MENU_SEPARATOR_HEIGHT,
+            200.
+        );
+        // §7.4 (C26).
+        assert_eq!((POPOVER_RADIUS, POPOVER_PADDING), (16., 16.));
+        // §7.5 (C27): the 11 pt Tooltip line centred in 20 pt.
+        assert_eq!((TOOLTIP_HEIGHT, TOOLTIP_RADIUS), (20., 5.));
+        assert_eq!(TextStyle::Tooltip.token().size, 11.);
+        let (light, dark) = (Theme::light(), Theme::dark());
+        assert_eq!(
+            light.tooltip_material(),
+            Hsla::from(rgb(0xe7e7e7)).opacity(0.898)
+        );
+        assert_eq!(
+            dark.tooltip_material(),
+            Hsla::from(rgb(0x3a3a3a)).opacity(0.828)
+        );
+        for theme in [light, dark] {
+            let opaque = theme.with_reduce_transparency(true).tooltip_material();
+            assert_eq!(opaque.a, 1., "opaque under Reduce Transparency");
+        }
     }
     #[test]
     fn focus_and_selection_tokens_match_spec_2a_2b() {
