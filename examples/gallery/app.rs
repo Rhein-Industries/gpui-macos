@@ -173,6 +173,9 @@ struct Gallery {
     nav_state: Entity<gpui_kit::base::NavStackState>,
     date_picker_state: Entity<DatePickerState>,
     dock_state: Entity<gpui_kit::base::dock::DockArea>,
+    /// `--open` on the menu, popover or tooltip page (reference captures).
+    /// The menu and popover clear it once they have opened.
+    launch_popup: bool,
 }
 
 impl Gallery {
@@ -330,6 +333,12 @@ impl Gallery {
         });
         cx.observe(&nav_state, |_, _, cx| cx.notify()).detach();
         let date_picker_state = cx.new(|cx| DatePickerState::new(window, cx));
+        // Pinned for reference captures: Thursday, January 15, 2026.
+        let pinned_date =
+            gpui_kit::base::Date::Single(chrono::NaiveDate::from_ymd_opt(2026, 1, 15));
+        calendar_state.update(cx, |state, cx| state.set_date(pinned_date, window, cx));
+        let picker_calendar = date_picker_state.read(cx).calendar.clone();
+        picker_calendar.update(cx, |state, cx| state.set_date(pinned_date, window, cx));
         cx.observe(&date_picker_state, |_, _, cx| cx.notify())
             .detach();
         let dock_state = cx.new(|cx| dock_area("gallery-workspace", window, cx));
@@ -381,7 +390,7 @@ impl Gallery {
             },
         )
         .ok();
-        Self {
+        let mut gallery = Self {
             native_toolbar,
             extended,
             dock_state,
@@ -460,6 +469,28 @@ impl Gallery {
             article_filters: [true, true, false],
             tab: 0,
             progress: 30.,
+            launch_popup: false,
+        };
+        gallery.present_launch_popup(open_popup_on_launch(), window, cx);
+        gallery
+    }
+
+    /// `--open`: opens the dialog, alert dialog or sheet now. Menus and
+    /// popovers open from `launch_popup` on their first render; the tooltip
+    /// surface stays pinned while it is set.
+    fn present_launch_popup(&mut self, open: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.launch_popup = open && matches!(self.page, "menu" | "popover" | "tooltip");
+        self.extended.launch_popup = open && self.page == "material";
+        match self.page {
+            "dialog" | "alert_dialog" if open => {
+                self.modal_open = true;
+                self.modal_focus.focus(window, cx);
+            }
+            "sheet" if open => {
+                self.sheet_open = true;
+                self.sheet_focus.focus(window, cx);
+            }
+            _ => {}
         }
     }
 
@@ -1012,55 +1043,62 @@ impl Gallery {
                         preview.child(div().text_color(t.secondary).child(".config"))
                     }),
             )
-            .child(popover(
-                "display-options",
-                button(
-                    "display-options-trigger",
-                    "Display options",
-                    ButtonVariant::Secondary,
-                    cx,
-                )
-                .child(icon(IconName::ChevronDown).size(rems(0.875))),
-                move |_, _, cx| {
-                    let checked = target.read(cx).checked;
-                    let enabled = target.read(cx).enabled;
-                    let hidden_target = target.clone();
-                    let sync_target = target.clone();
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(rems(0.875))
-                        .child(div().font_weight(FontWeight::BOLD).child("Display options"))
-                        .child(
-                            checkbox(
-                                "popover-hidden",
-                                "Show hidden files",
-                                if checked {
-                                    CheckboxState::Checked
-                                } else {
-                                    CheckboxState::Unchecked
-                                },
-                                cx,
+            .child(
+                popover(
+                    "display-options",
+                    button(
+                        "display-options-trigger",
+                        "Display options",
+                        ButtonVariant::Secondary,
+                        cx,
+                    )
+                    .child(icon(IconName::ChevronDown).size(rems(0.875))),
+                    move |_, _, cx| {
+                        let checked = target.read(cx).checked;
+                        let enabled = target.read(cx).enabled;
+                        let hidden_target = target.clone();
+                        let sync_target = target.clone();
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(rems(0.875))
+                            .child(div().font_weight(FontWeight::BOLD).child("Display options"))
+                            .child(
+                                checkbox(
+                                    "popover-hidden",
+                                    "Show hidden files",
+                                    if checked {
+                                        CheckboxState::Checked
+                                    } else {
+                                        CheckboxState::Unchecked
+                                    },
+                                    cx,
+                                )
+                                .on_change(
+                                    move |value, _, _, cx| {
+                                        hidden_target.update(cx, |this, cx| {
+                                            this.checked = value == CheckboxState::Checked;
+                                            cx.notify();
+                                        })
+                                    },
+                                ),
                             )
-                            .on_change(move |value, _, _, cx| {
-                                hidden_target.update(cx, |this, cx| {
-                                    this.checked = value == CheckboxState::Checked;
-                                    cx.notify();
-                                })
-                            }),
-                        )
-                        .child(
-                            switch("popover-sync", "Sync workspace", enabled, cx).on_change(
-                                move |value, _, _, cx| {
-                                    sync_target.update(cx, |this, cx| {
-                                        this.enabled = value;
-                                        cx.notify();
-                                    })
-                                },
-                            ),
-                        )
-                },
-            ))
+                            .child(
+                                switch("popover-sync", "Sync workspace", enabled, cx).on_change(
+                                    move |value, _, _, cx| {
+                                        sync_target.update(cx, |this, cx| {
+                                            this.enabled = value;
+                                            cx.notify();
+                                        })
+                                    },
+                                ),
+                            )
+                    },
+                )
+                .when(std::mem::take(&mut self.launch_popup), |popover| {
+                    popover.open(true)
+                }),
+            )
             .child(div().text_color(t.secondary).child(if self.enabled {
                 "Workspace sync is enabled."
             } else {
@@ -1103,21 +1141,43 @@ impl Gallery {
                                 "Not in favorites"
                             })),
                     )
-                    .child(with_tooltip(
-                        icon_button(
-                            "tooltip-favorite",
-                            IconName::Star,
-                            action,
-                            ButtonVariant::Secondary,
-                            cx,
-                        )
-                        .selected(self.pressed)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.pressed = !this.pressed;
-                            cx.notify();
-                        })),
-                        action,
-                    )),
+                    .child(
+                        div()
+                            .relative()
+                            .child(with_tooltip(
+                                icon_button(
+                                    "tooltip-favorite",
+                                    IconName::Star,
+                                    action,
+                                    ButtonVariant::Secondary,
+                                    cx,
+                                )
+                                .selected(self.pressed)
+                                .on_click(cx.listener(
+                                    |this, _, _, cx| {
+                                        this.pressed = !this.pressed;
+                                        cx.notify();
+                                    },
+                                )),
+                                action,
+                            ))
+                            // `--open`: hover tooltips cannot be forced, so show
+                            // the same surface just below the button.
+                            .when(self.launch_popup, |anchor| {
+                                anchor.child(gpui_kit::deferred(
+                                    div()
+                                        .absolute()
+                                        .top(gpui_kit::relative(1.))
+                                        .left_0()
+                                        .mt(rems(0.25))
+                                        // The anchor is only as wide as the star;
+                                        // keep the tooltip on one line like a hover.
+                                        .whitespace_nowrap()
+                                        .debug_selector(|| "launch-tooltip".into())
+                                        .child(tooltip(action, cx)),
+                                ))
+                            }),
+                    ),
             )
             .child(
                 div()
@@ -1137,39 +1197,44 @@ impl Gallery {
         let t = cx.macos().clone();
         let target = cx.entity();
         content = content
-            .child(menu(
-                "workspace-menu",
-                button(
-                    "menu-trigger",
-                    "Workspace actions",
-                    ButtonVariant::Secondary,
-                    cx,
+            .child(
+                menu(
+                    "workspace-menu",
+                    button(
+                        "menu-trigger",
+                        "Workspace actions",
+                        ButtonVariant::Secondary,
+                        cx,
+                    )
+                    .styles(|styles| styles.selected(|style| style.bg(t.border)))
+                    .child(icon(IconName::ChevronDown).text_color(t.foreground)),
+                    vec![
+                        MenuItem::new("New workspace").icon(IconName::Plus),
+                        MenuItem::new("Favorite workspace").icon(IconName::Star),
+                        MenuItem::new("Export").submenu(vec![
+                            (10, MenuItem::new("Export as PDF")),
+                            (11, MenuItem::new("Export as Markdown")),
+                        ]),
+                        MenuItem::new("Unavailable action").disabled(true),
+                    ],
+                    move |index, _, cx| {
+                        target.update(cx, |this, cx| {
+                            this.menu_result = match index {
+                                0 => "New workspace",
+                                1 => "Favorite workspace",
+                                10 => "Export as PDF",
+                                11 => "Export as Markdown",
+                                _ => "Unavailable action",
+                            }
+                            .into();
+                            cx.notify();
+                        })
+                    },
                 )
-                .styles(|styles| styles.selected(|style| style.bg(t.border)))
-                .child(icon(IconName::ChevronDown).text_color(t.foreground)),
-                vec![
-                    MenuItem::new("New workspace").icon(IconName::Plus),
-                    MenuItem::new("Favorite workspace").icon(IconName::Star),
-                    MenuItem::new("Export").submenu(vec![
-                        (10, MenuItem::new("Export as PDF")),
-                        (11, MenuItem::new("Export as Markdown")),
-                    ]),
-                    MenuItem::new("Unavailable action").disabled(true),
-                ],
-                move |index, _, cx| {
-                    target.update(cx, |this, cx| {
-                        this.menu_result = match index {
-                            0 => "New workspace",
-                            1 => "Favorite workspace",
-                            10 => "Export as PDF",
-                            11 => "Export as Markdown",
-                            _ => "Unavailable action",
-                        }
-                        .into();
-                        cx.notify();
-                    })
-                },
-            ))
+                .when(std::mem::take(&mut self.launch_popup), |menu| {
+                    menu.open(true)
+                }),
+            )
             .child(self.menu_result.clone());
         content
     }
@@ -3851,6 +3916,18 @@ fn initial_page() -> &'static str {
     "overview"
 }
 
+/// `--open`: present the initial page's primary popup on launch.
+fn open_popup_on_launch() -> bool {
+    #[cfg(not(target_family = "wasm"))]
+    if std::env::args()
+        .skip(1)
+        .any(|argument| argument == "--open")
+    {
+        return true;
+    }
+    false
+}
+
 fn initial_theme_mode() -> usize {
     #[cfg(not(target_family = "wasm"))]
     for argument in std::env::args().skip(1).rev() {
@@ -4450,15 +4527,16 @@ mod tests {
         cx.update(|window, cx| {
             window.draw(cx).clear(cx);
             assert!(!view.read(cx).date_picker_state.read(cx).is_open());
-            assert!(
-                !view
-                    .read(cx)
+            assert_eq!(
+                view.read(cx)
                     .date_picker_state
                     .read(cx)
                     .calendar
                     .read(cx)
                     .date()
-                    .is_some()
+                    .start(),
+                chrono::NaiveDate::from_ymd_opt(2026, 1, 15),
+                "the pinned date survives"
             );
         });
         cx.simulate_keystrokes("enter");
@@ -4719,6 +4797,40 @@ mod tests {
                 assert!(!view.read(cx).sheet_open, "{dismissal}");
                 assert!(view.read(cx).sheet_trigger.is_focused(window));
             });
+        }
+    }
+
+    #[gpui_kit::test]
+    fn open_flag_presents_each_primary_popup(cx: &mut TestAppContext) {
+        cx.update(gpui_macos::init);
+        for (page, selector) in [
+            ("menu", "macos-menu-content"),
+            ("popover", "macos-checkbox-indicator-popover-hidden"),
+            ("material", "material-glass-content"),
+            ("tooltip", "launch-tooltip"),
+            ("sheet", "project-sheet"),
+            ("dialog", ""),
+            ("alert_dialog", ""),
+        ] {
+            let (view, cx) = cx.add_window_view(Gallery::new);
+            cx.update(|window, cx| {
+                view.update(cx, |this, cx| {
+                    this.page = page;
+                    this.present_launch_popup(true, window, cx);
+                    cx.notify();
+                });
+                window.draw(cx).clear(cx);
+            });
+            cx.update(|window, cx| {
+                window.draw(cx).clear(cx);
+                if selector.is_empty() {
+                    assert!(view.read(cx).modal_open, "{page}");
+                    assert!(view.read(cx).modal_focus.is_focused(window), "{page}");
+                }
+            });
+            if !selector.is_empty() {
+                assert!(cx.debug_bounds(selector).is_some(), "{page}");
+            }
         }
     }
 

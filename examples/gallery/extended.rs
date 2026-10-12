@@ -58,6 +58,8 @@ pub(super) struct Extended {
     attachment_visible: bool,
     attachment_failed: bool,
     message_count: usize,
+    /// `--open` on the material page: present the glass panel once (set by the gallery).
+    pub(super) launch_popup: bool,
 }
 
 impl Extended {
@@ -170,6 +172,7 @@ impl Extended {
             attachment_visible: true,
             attachment_failed: true,
             message_count: 20,
+            launch_popup: false,
         }
     }
 
@@ -243,11 +246,11 @@ impl Extended {
             "material" => content = content.child(div().flex().flex_wrap().gap(rems(1.)).children([(Material::Sidebar, "Sidebar"), (Material::Toolbar, "Toolbar"), (Material::Popover, "Popover"), (Material::Hud, "HUD")].map(|(kind, label)| material(kind, cx).w(rems(13.)).h(rems(8.)).rounded(rems(1.)).border_1().shadow_md().flex().flex_col().items_center().justify_center().gap(rems(0.5)).child(icon(IconName::Layers).size(rems(1.75)).text_color(t.accent)).child(label))))
                 .child(popover("material-glass-preview", button("material-glass-trigger", "Show Glass Panel", ButtonVariant::Secondary, cx), |_, _, cx| {
                     let t = cx.macos();
-                    div().flex().flex_col().gap(rems(0.625))
+                    div().flex().flex_col().gap(rems(0.625)).debug_selector(|| "material-glass-content".into())
                         .child(div().font_weight(FontWeight::SEMIBOLD).child("System glass"))
                         .child("The foreground stays interactive while AppKit draws the material behind it.")
                         .child(div().text_color(t.secondary).child("The native route is available on compatible macOS hosts. Appearance and transparency preferences determine the fallback."))
-                }))
+                }).when(std::mem::take(&mut self.launch_popup), |popover| popover.open(true)))
                 .child(note("These samples show semantic canvas fills. Native sidebar and toolbar materials use AppKit glass; menus, popovers and picker panels use separate system glass windows above the GPUI scene. Reduced transparency uses opaque fills.", cx)),
             "editor" => content = content.child(Editor::new(&self.editor).w_full().h(rems(23.)).border_1().border_color(t.border).rounded(rems(0.625)))
                 .child(note("Edit this source. ⌘F opens Find; Option-click adds another cursor. Enable tree-sitter-languages for syntax grammars.", cx)),

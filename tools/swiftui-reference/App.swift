@@ -4,13 +4,15 @@ import SwiftUI
 // A native SwiftUI mirror of the GPUI gallery (examples/gallery) for pixel
 // comparison. Every pilot page is built from real SwiftUI system controls.
 
-/// Command-line contract shared with the GPUI gallery: page, appearance, display.
+/// Command-line contract shared with the GPUI gallery: page, appearance, display, open.
 struct LaunchOptions: Sendable {
     enum Appearance: Sendable { case system, light, dark }
 
     let page: String
     let appearance: Appearance
     let displayID: UInt32?
+    /// `--open`: the page presents its primary popup on launch.
+    let open: Bool
 
     static let current = LaunchOptions(arguments: Array(CommandLine.arguments.dropFirst()))
 
@@ -18,12 +20,14 @@ struct LaunchOptions: Sendable {
         var page: String?
         var appearance = Appearance.system
         var displayID: UInt32?
+        var open = false
         var index = 0
         while index < arguments.count {
             let argument = arguments[index]
             switch argument {
             case "--light": appearance = .light
             case "--dark": appearance = .dark
+            case "--open": open = true
             case "--display":
                 displayID = index + 1 < arguments.count ? UInt32(arguments[index + 1]) : nil
                 if index + 1 < arguments.count { index += 1 }
@@ -42,6 +46,7 @@ struct LaunchOptions: Sendable {
         self.page = page ?? "overview"
         self.appearance = appearance
         self.displayID = displayID
+        self.open = open
     }
 }
 

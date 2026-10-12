@@ -7,13 +7,26 @@ struct PageContent: View {
     let page: PageInfo
 
     var body: some View {
-        switch page.slug {
-        case "checkbox": CheckboxPage()
-        case "switch": SwitchPage()
-        case "button": ButtonPage()
-        case "select": SelectPage()
-        case "table": TablePage()
-        default: PlaceholderPage(page: page)
+        if let view = pilotPage(page.slug)
+            ?? actionsNavigationChartsPage(page.slug)
+            ?? formsPage(page.slug)
+            ?? overlaysTextPage(page.slug)
+            ?? displayPage(page.slug)
+        {
+            view
+        } else {
+            PlaceholderPage(page: page)
+        }
+    }
+
+    private func pilotPage(_ slug: String) -> AnyView? {
+        switch slug {
+        case "checkbox": AnyView(CheckboxPage())
+        case "switch": AnyView(SwitchPage())
+        case "button": AnyView(ButtonPage())
+        case "select": AnyView(SelectPage())
+        case "table": AnyView(TablePage())
+        default: nil
         }
     }
 }

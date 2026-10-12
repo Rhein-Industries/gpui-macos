@@ -236,24 +236,24 @@ def settle_capture(seconds, wait_idle):
         time.sleep(min(.1, remaining))
 
 
-def capture(path, page, appearance, destination, settle, timeout, record, display, bounds_only=False, wait_idle=0):
+def capture(path, page, appearance, destination, settle, timeout, record, display, bounds_only=False, wait_idle=0, extra_arguments=()):
     while True:
         wait_for_idle(wait_idle)
         record.clear()
         try:
-            return capture_once(path, page, appearance, destination, settle, timeout, record, display, bounds_only, wait_idle)
+            return capture_once(path, page, appearance, destination, settle, timeout, record, display, bounds_only, wait_idle, extra_arguments)
         except CaptureInterruptedByInput:
             destination.unlink(missing_ok=True)
             print('User input during settling; discarded capture and waiting again', flush=True)
 
 
-def capture_once(path, page, appearance, destination, settle, timeout, record, display, bounds_only=False, wait_idle=0):
+def capture_once(path, page, appearance, destination, settle, timeout, record, display, bounds_only=False, wait_idle=0, extra_arguments=()):
     import Quartz as Q
     started = time.monotonic()
     previous = frontmost_application()
     hidden = False
     process = None
-    arguments = [page, '--' + appearance, '--display', str(display['id'])]
+    arguments = [page, '--' + appearance, '--display', str(display['id']), *extra_arguments]
     record.update({'executable': str(path), 'arguments': arguments, 'display': display})
     # Log output beside the image; pipe buffers must never block app startup.
     with destination.with_suffix('.log').open('wb') as log:
@@ -271,7 +271,8 @@ def capture_once(path, page, appearance, destination, settle, timeout, record, d
                 if time.monotonic() > deadline:
                     raise RuntimeError(f'No active on-screen layer-0 window for PID {process.pid} within {timeout}s')
                 time.sleep(.05)
-            settle_capture(settle, wait_idle)
+            # Popups present after launch and animate in; give them extra time.
+            settle_capture(settle + (1.5 if '--open' in extra_arguments else 0), wait_idle)
             window = main_window(process.pid)
             if process.poll() is not None or not window:
                 raise RuntimeError(f'PID {process.pid} lost its window before capture')
@@ -289,7 +290,16 @@ def capture_once(path, page, appearance, destination, settle, timeout, record, d
                 hidden = Q.CGDisplayHideCursor(display['id']) == 0
             except Exception:
                 pass
-            subprocess.run(['screencapture', '-x', '-o', '-l', str(record['window_id']), str(destination)], check=True, capture_output=True, timeout=timeout)
+            if '--open' in extra_arguments:
+                # Popups, menus, sheets and alerts are separate windows; capture the
+                # screen area of the main window so they are included.
+                b = record['window_bounds_points']
+                rect = f"{b['X']:g},{b['Y']:g},{b['Width']:g},{b['Height']:g}"
+                record['capture_method'] = 'screen-rect'
+                subprocess.run(['screencapture', '-x', '-R', rect, str(destination)], check=True, capture_output=True, timeout=timeout)
+            else:
+                record['capture_method'] = 'window'
+                subprocess.run(['screencapture', '-x', '-o', '-l', str(record['window_id']), str(destination)], check=True, capture_output=True, timeout=timeout)
             with Image.open(destination) as image:
                 image.load()
                 record['size_pixels'] = list(image.size)
@@ -436,6 +446,7 @@ def parse_args():
     parser.add_argument('--display', default='auto', help='auto: highest backing scale active display (default); main or CGDirectDisplayID')
     parser.add_argument('--bounds-only', action='store_true', help='Verify CGWindowList frame and placement without Screen Recording or pixel capture')
     parser.add_argument('--skip-build', action='store_true')
+    parser.add_argument('--gallery-app', type=Path, help='Use this GPUI gallery .app instead of building target/debug (e.g. a baseline build); implies no gallery build')
     only = parser.add_mutually_exclusive_group()
     only.add_argument('--gallery-only', action='store_true')
     only.add_argument('--swiftui-only', action='store_true')
@@ -471,13 +482,15 @@ def main():
     apps = ['swiftui'] if args.swiftui_only else ['gpui'] if args.gallery_only else ['gpui', 'swiftui']
     if not args.skip_build:
         for app in apps:
+            if app == 'gpui' and args.gallery_app:
+                continue
             script = ROOT / ('scripts/bundle-gallery.sh' if app == 'gpui' else 'scripts/build-swiftui-reference.sh')
             if not script.exists():
                 raise RuntimeError(f'Build script missing: {script}; SwiftUI worker may still be building.')
             subprocess.run(['bash', str(script)], cwd=ROOT, check=True)
     executables = {}
     for app in apps:
-        executables[app] = executable(ROOT / ('target/debug/GPUI macOS Gallery.app' if app == 'gpui' else 'target/swiftui-reference/SwiftUI macOS Reference.app'), ROOT / 'target/debug/examples/gallery' if app == 'gpui' else None)
+        executables[app] = executable(args.gallery_app if app == 'gpui' and args.gallery_app else ROOT / ('target/debug/GPUI macOS Gallery.app' if app == 'gpui' else 'target/swiftui-reference/SwiftUI macOS Reference.app'), ROOT / 'target/debug/examples/gallery' if app == 'gpui' else None)
     args.out.mkdir(parents=True, exist_ok=True)
     results = {'manifest': manifest, 'metric_definition': {'mismatch': 'YIQ weighted squared distance > 35215 * threshold^2; all pixels including antialiasing; alpha composited onto white', 'ssim': 'scikit-image RGB channel mean, data_range=255, window up to 7 pixels', 'heatmap': 'red marks above-threshold mismatch; green shows normalized YIQ difference strength'}, 'pages': pages, 'appearances': args.appearances, 'threshold': args.threshold, 'settle_seconds': args.settle, 'regions_config': config, 'pairs': []}
     results['wait_idle_seconds'] = args.wait_idle
@@ -495,7 +508,7 @@ def main():
                     for app in apps:
                         print(f'Capturing {app}: {page} / {appearance}', flush=True)
                         pair['captures'][app] = {}
-                        capture(executables[app], page, appearance, folder / f'{app}.png', args.settle, args.window_timeout, pair['captures'][app], manifest['display'], args.bounds_only, args.wait_idle)
+                        capture(executables[app], page, appearance, folder / f'{app}.png', args.settle, args.window_timeout, pair['captures'][app], manifest['display'], args.bounds_only, args.wait_idle, extra_arguments=('--open',) if catalog.get(page, {}).get('open') else ())
                     if len(apps) == 2 and not args.bounds_only:
                         pair['metrics'] = compare(folder, pair['captures'], regions[page], args.threshold)
                         print(f"  content mismatch {pair['metrics']['content']['mismatch_percent']:.3f}%", flush=True)

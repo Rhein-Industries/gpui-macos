@@ -29,6 +29,14 @@ registers it with Launch Services and prints the bundle path.
   each app's default centering behavior. Both frames are exactly 1060 x 760 pt,
   including the titlebar; the centered origin is aligned to whole points so
   WindowServer does not enclose fractional edges in a 1061 pt frame.
+- `--open` presents the selected page's primary popup at launch, so popup pages
+  can be compared open: `menu` (menu open), `popover`, `material` (glass panel
+  popover), `tooltip` (tooltip shown below the star button), `dialog`,
+  `alert_dialog` and `sheet` (presented). Other pages ignore it. The gallery opens
+  menus and popovers through their controlled open state and pins its hover
+  tooltip surface under the button, since hover tooltips cannot be forced; here
+  the menu is the same `NSMenu` popped up under its button, the tooltip a
+  help-tag look-alike, and dialogs/sheets SwiftUI presentations.
 - Anything else is ignored (for example `-NSDocumentRevisionsDebugMode YES`).
   AppKit's `NSTreatUnknownArgumentsAsOpen` is turned off, otherwise a slug
   argument is treated as a document and the main window never opens.

@@ -20,12 +20,18 @@ fi
 
 rm -rf "$bundle"
 mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
+mkdir -p "$bundle/Contents/Resources/GalleryAssets"
+cp "$task_root"/examples/gallery/assets/*.svg "$bundle/Contents/Resources/GalleryAssets/"
 swiftc -sdk "$sdk" -target arm64-apple-macosx26.0 -swift-version 6 -O -parse-as-library \
     -warnings-as-errors \
     "$task_root/tools/swiftui-reference/App.swift" \
     "$task_root/tools/swiftui-reference/Catalog.swift" \
     "$task_root/tools/swiftui-reference/GalleryView.swift" \
     "$task_root/tools/swiftui-reference/Pages.swift" \
+    "$task_root/tools/swiftui-reference/PagesActions.swift" \
+    "$task_root/tools/swiftui-reference/PagesForms.swift" \
+    "$task_root/tools/swiftui-reference/PagesOverlays.swift" \
+    "$task_root/tools/swiftui-reference/PagesDisplay.swift" \
     -o "$bundle/Contents/MacOS/swiftui-reference"
 cat > "$bundle/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
