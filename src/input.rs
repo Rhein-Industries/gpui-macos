@@ -1,6 +1,7 @@
 //! Native text editing, selection, clipboard and IME supplied by gpui-base.
 use crate::ActiveTheme;
 use crate::NativeTextStyle as _;
+use crate::tokens::{CONTROL_RADIUS, FIELD_HEIGHT, pt};
 use gpui_kit::base::{
     Input as BaseInput, InputBase, Textarea,
     input::{InputState, TextareaState},
@@ -87,7 +88,8 @@ fn frame(id: impl Into<ElementId>, focused: bool, cx: &App) -> InputBase {
         .min_w_0()
         .px(rems(0.375))
         .border_1()
-        .rounded(rems(0.375))
+        // Text fields: radius 6, spec §4.1 (C13).
+        .rounded(pt(CONTROL_RADIUS))
         .border_color(t.control_border())
         .bg(t.surface)
         .text_color(t.foreground)
@@ -115,7 +117,8 @@ pub fn input(
     let target = state.clone();
     let base = frame(id, focused, cx)
         .when(masked, |frame| frame.role(gpui_kit::Role::PasswordInput))
-        .min_h(rems(1.5))
+        // 24 tall, spec §4.3.
+        .min_h(pt(FIELD_HEIGHT))
         .py(rems(0.1875))
         .flex()
         .items_center()
@@ -162,13 +165,13 @@ pub fn number_input(state: &Entity<InputState>, cx: &mut App) -> gpui_kit::base:
     let minus = t.clone();
     gpui_kit::base::NumberInput::new(state)
         .w(rems(7.5))
-        .h(rems(1.5))
+        .h(pt(FIELD_HEIGHT))
         .controls_right()
         .overflow_hidden()
         .flex()
         .items_center()
         .border_1()
-        .rounded(rems(0.375))
+        .rounded(pt(CONTROL_RADIUS))
         .border_color(t.control_border())
         .bg(t.surface)
         .text_color(t.foreground)

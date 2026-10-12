@@ -18,7 +18,6 @@ use kit::{
     group_box::{GroupBox, GroupBoxVariants as _},
     input::{Editor, EditorState, InputGroup, InputGroupAddon, InputGroupInput, InputGroupText},
     label::Label,
-    list::ListItem,
     marker::{Marker, MarkerContent},
     message::{Message, MessageAlignment, MessageContent, MessageFooter, MessageHeader},
     message_scroller::{MessageScroller, MessageScrollerState},
@@ -382,7 +381,7 @@ impl Extended {
             "list" => {
                 let mut rows = div().w(rems(30.)).flex().flex_col().gap(rems(0.125));
                 for (index, label) in ["Project brief", "Meeting notes", "Design references"].into_iter().enumerate() {
-                    rows = rows.child(ListItem::new(("list-item", index)).selected(index == self.selected_row).child(div().flex().items_center().gap(rems(0.625)).child(icon(IconName::File)).child(label))
+                    rows = rows.child(mac::list_item(("list-item", index), cx).debug_selector(move || format!("list-row-{index}")).selected(index == self.selected_row).child(div().flex().items_center().gap(rems(0.625)).child(icon(IconName::File)).child(div().debug_selector(move || format!("list-label-{index}")).child(label)))
                         .on_click(cx.listener(move |this, _, _, cx| { this.extended.selected_row = index; cx.notify(); })));
                 }
                 content = content.child(rows).child(note(format!("Selected document {}", self.selected_row + 1), cx));

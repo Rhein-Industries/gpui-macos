@@ -68,6 +68,73 @@ impl<T: Styled> NativeTextStyle for T {}
 
 /// Base radius scale: spec §4.1 (small bezel, regular bezel, GroupBox, window); plan D3.
 pub(crate) const BASE_RADII: [f32; 4] = [5., 6., 12., 16.];
+
+/// A point token at the current zoom: points are rems of a 16 pt root.
+pub(crate) fn pt(points: f32) -> gpui_kit::Rems {
+    rems(points / 16.)
+}
+
+// Control metrics, regular size only (plan D1). Values are points.
+
+/// Bezel, pop-up and segmented height, spec §4.2.
+pub(crate) const BEZEL_HEIGHT: f32 = 24.;
+/// Bezel, pop-up and segmented horizontal padding, spec §4.2.
+pub(crate) const BEZEL_PADDING_X: f32 = 12.;
+/// Bezel, pop-up, segmented and text-field corner radius, spec §4.1 (C13).
+pub(crate) const CONTROL_RADIUS: f32 = 6.;
+/// Icon-only bordered button: visible bezel (width, height), spec §4.2 (C7).
+pub(crate) const ICON_BUTTON_BEZEL: (f32, f32) = (37.5, 20.5);
+/// Icon-only margins (horizontal, vertical) that give the 39 × 21 layout
+/// frame, spec §4.2 (C7). The hit area is the visible bezel.
+pub(crate) const ICON_BUTTON_MARGIN: (f32, f32) = (0.75, 0.25);
+/// Icon-only glyph box (the `plus` symbol), spec §4.2 (C7).
+pub(crate) const ICON_BUTTON_GLYPH: f32 = 10.5;
+/// Checkbox box, spec §4.4.
+pub(crate) const CHECKBOX_SIZE: f32 = 16.;
+/// Checkbox corner radius, spec §4.1 (C9).
+pub(crate) const CHECKBOX_RADIUS: f32 = 5.5;
+/// Labeled checkbox row; the box sits at y 0.5, spec §4.4 (C2).
+pub(crate) const CHECKBOX_ROW_HEIGHT: f32 = 17.;
+/// Checkbox and radio label gap, spec §4.4 (C21).
+pub(crate) const INDICATOR_LABEL_GAP: f32 = 5.;
+/// Radio circle and selected dot, spec §4.4.
+pub(crate) const RADIO_SIZE: f32 = 16.;
+pub(crate) const RADIO_DOT: f32 = 5.;
+/// Text, secure and search field height, spec §4.3 (the search field is a capsule).
+pub(crate) const FIELD_HEIGHT: f32 = 24.;
+/// Switch track (width, height), knob (width, height) and knob inset, spec §4.5.
+pub(crate) const SWITCH_TRACK: (f32, f32) = (54., 24.);
+pub(crate) const SWITCH_KNOB: (f32, f32) = (32., 20.);
+pub(crate) const SWITCH_INSET: f32 = 2.;
+/// Labeled switch gap, spec §4.5.
+pub(crate) const SWITCH_LABEL_GAP: f32 = 8.;
+/// Slider frame height, track thickness and resting knob (width, height), spec §4.5.
+pub(crate) const SLIDER_HEIGHT: f32 = 16.;
+pub(crate) const SLIDER_TRACK: f32 = 6.;
+pub(crate) const SLIDER_KNOB: (f32, f32) = (20., 16.);
+/// Linear progress bar thickness, spec §4.5.
+pub(crate) const PROGRESS_LINEAR: f32 = 8.;
+
+// Rows (C16).
+
+/// List, table and tree row height, spec §5.2.
+pub(crate) const ROW_HEIGHT: f32 = 24.;
+/// Table header height above its separator, spec §5.2.
+pub(crate) const TABLE_HEADER_HEIGHT: f32 = 27.;
+/// Table header separator: a one-point hairline approximating the measured
+/// 1.5 pt, spec §5.2.
+pub(crate) const TABLE_SEPARATOR: f32 = 1.;
+/// Body text line advance used to derive row padding, spec §3.1.
+const BODY_LINE: f32 = 16.;
+/// Vertical cell padding that gives a Body row its native height.
+pub(crate) const ROW_PADDING_Y: f32 = (ROW_HEIGHT - BODY_LINE) / 2.;
+/// Grouped card-list row (`inset_list_row`): a deliberate specialization,
+/// not the measured 24 pt list row (plan D12).
+pub(crate) const INSET_LIST_ROW_HEIGHT: f32 = 40.;
+/// Sidebar ideal width in points, used by [`crate::sidebar`] (C3, policy;
+/// SwiftUI's 144 default is content-driven). Scale it by the window's rem
+/// size over 16 to get pixels at the current zoom.
+pub const SIDEBAR_IDEAL_WIDTH: f32 = 220.;
 /// Prominent disabled tint multiplier, spec §6.2.3.
 pub(crate) const DISABLED_TINT_OPACITY: f32 = 0.69;
 /// Prominent disabled label alpha, spec §6.2.3.
@@ -210,6 +277,37 @@ mod tests {
                 }
             );
         }
+    }
+    #[test]
+    fn control_and_row_metrics_match_spec_4_and_5() {
+        // §4.2 (C7): bezel plus margins is the 39 × 21 layout frame.
+        let (w, h) = ICON_BUTTON_BEZEL;
+        let (mx, my) = ICON_BUTTON_MARGIN;
+        assert_eq!((w + 2. * mx, h + 2. * my), (39., 21.));
+        assert_eq!((w, h, ICON_BUTTON_GLYPH), (37.5, 20.5, 10.5));
+        assert_eq!(
+            (BEZEL_HEIGHT, BEZEL_PADDING_X, CONTROL_RADIUS),
+            (24., 12., 6.)
+        );
+        // §4.4 (C2, C9).
+        assert_eq!(
+            (CHECKBOX_SIZE, CHECKBOX_RADIUS, CHECKBOX_ROW_HEIGHT),
+            (16., 5.5, 17.)
+        );
+        assert_eq!((INDICATOR_LABEL_GAP, RADIO_SIZE, RADIO_DOT), (5., 16., 5.));
+        assert_eq!(FIELD_HEIGHT, 24.);
+        // §4.5: the knob travels inside the inset track.
+        assert_eq!(SWITCH_TRACK.1 - 2. * SWITCH_INSET, SWITCH_KNOB.1);
+        assert_eq!((SWITCH_TRACK, SWITCH_KNOB), ((54., 24.), (32., 20.)));
+        assert_eq!(
+            (SLIDER_TRACK, SLIDER_KNOB, PROGRESS_LINEAR),
+            (6., (20., 16.), 8.)
+        );
+        // §5.2 (C16) and plan D12.
+        assert_eq!(ROW_PADDING_Y * 2. + 16., 24.);
+        assert_eq!(TABLE_HEADER_HEIGHT, 27.);
+        assert_eq!(TABLE_SEPARATOR, 1.);
+        assert_eq!((INSET_LIST_ROW_HEIGHT, SIDEBAR_IDEAL_WIDTH), (40., 220.));
     }
     #[test]
     fn disabled_values_match_spec() {

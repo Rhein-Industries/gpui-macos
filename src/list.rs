@@ -78,13 +78,15 @@ pub fn inset_list(cx: &App) -> Div {
 
 /// A composable inset row. Add a bottom separator when another row follows.
 /// A stable id allows application-owned click, focus and selection behavior.
+/// Rows are 40 pt: a grouped card-list specialization (plan D12), not the
+/// 24 pt list row.
 pub fn inset_list_row(id: impl Into<ElementId>, cx: &App) -> Stateful<Div> {
     div()
         .id(id)
         .flex()
         .items_center()
         .justify_between()
-        .min_h(rems(2.5))
+        .min_h(crate::tokens::pt(crate::tokens::INSET_LIST_ROW_HEIGHT))
         .px(rems(0.875))
         .py(rems(0.5))
         .gap(rems(0.75))

@@ -3,7 +3,8 @@ use crate::{IconName, Input, icon, input};
 use gpui_kit::base::input::InputState;
 use gpui_kit::{App, ElementId, Entity, Styled, Window, rems};
 
-/// A rounded search field with a leading search glyph. The app owns the query.
+/// A capsule search field (spec §4.1, 24 tall per §4.3) with a leading
+/// search glyph. The app owns the query.
 pub fn search_field(
     id: impl Into<ElementId>,
     state: &Entity<InputState>,

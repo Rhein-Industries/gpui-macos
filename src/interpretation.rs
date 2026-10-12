@@ -855,7 +855,7 @@ pub const INTERPRETATIONS: &[ComponentInterpretation] = &[
         rendering: RenderingKind::GpuiReplica,
         counterpart: "NSTableView single-column list",
         design: "Flat selectable rows with SF file symbols",
-        api: "gpui_macos::kit::list::ListItem",
+        api: "gpui_macos::interpretation::list_item / gpui_macos::kit::list::ListItem",
         capabilities: &["Selection", "pointer callbacks", "custom row content"],
         native_integrations: &[],
         optional_features: &[],
@@ -2079,6 +2079,16 @@ pub fn bubble_content(
         .native_text_style(crate::TextStyle::Body, cx.macos())
         .bg(if outgoing { t.accent } else { t.normal_fill() })
         .text_color(if outgoing { t.on_accent } else { t.foreground })
+}
+
+/// A selectable list row with Kit's full `ListItem` API. Kit sizes its rows
+/// with GPUI's 16 pt `text_base`; this row uses Body text, so with Kit's 4 pt
+/// vertical padding it is the native 24 pt list row (spec §3.1, §5.2, C16).
+pub fn list_item(id: impl Into<ElementId>, cx: &App) -> kit::list::ListItem {
+    kit::list::ListItem::new(id)
+        .min_h(crate::tokens::pt(crate::tokens::ROW_HEIGHT))
+        .font_family(cx.macos().font.clone())
+        .native_text_style(crate::TextStyle::Body, cx.macos())
 }
 
 /// A compact Mail-style file row with Kit's complete lifecycle and action API.

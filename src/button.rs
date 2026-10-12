@@ -28,11 +28,49 @@ pub struct Button {
     paint_role: PaintRole,
     role_default: Option<(Option<Hsla>, Option<Hsla>)>,
     fill_duration: Duration,
+    snapped_frame: Option<SnappedFrame>,
     focus: Option<FocusHandle>,
     on_hover: Option<HoverListener>,
     hover: Option<Box<StyleRefinement>>,
     active: Option<Box<StyleRefinement>>,
     focus_visible: Option<Box<StyleRefinement>>,
+}
+
+#[derive(Clone, Copy)]
+struct SnappedFrame {
+    bezel: (f32, f32),
+    frame: (f32, f32),
+    /// The constructor's (size, leading margin, trailing margin) per axis.
+    /// An axis is snapped only while the caller has not changed any of them.
+    defaults: [AxisLengths; 2],
+}
+
+type AxisLengths = [Option<gpui_kit::Length>; 3];
+
+fn axis_lengths(style: &StyleRefinement) -> [AxisLengths; 2] {
+    [
+        [style.size.width, style.margin.left, style.margin.right],
+        [style.size.height, style.margin.top, style.margin.bottom],
+    ]
+}
+
+impl SnappedFrame {
+    /// Device-pixel bezel lengths and margins (leading, trailing) per axis.
+    /// Lengths round half toward zero, as GPUI's layout does; the leading
+    /// margin takes the larger half of an odd remainder.
+    fn device_pixels(self, points_to_device: f32) -> [(f32, f32, f32); 2] {
+        let round = |points: f32| ((points * points_to_device).abs() - 0.5).ceil().max(0.);
+        let axis = |bezel: f32, frame: f32| {
+            let bezel = round(bezel);
+            let remainder = (round(frame) - bezel).max(0.);
+            let trailing = (remainder / 2.).floor();
+            (bezel, remainder - trailing, trailing)
+        };
+        [
+            axis(self.bezel.0, self.frame.0),
+            axis(self.bezel.1, self.frame.1),
+        ]
+    }
 }
 
 /// The pointer state the fill follows, kept per button across frames.
@@ -55,6 +93,7 @@ impl Button {
             paint_role: PaintRole::Custom,
             role_default: None,
             fill_duration: crate::motion::CONTROL_COLOR,
+            snapped_frame: None,
             focus: None,
             on_hover: None,
             hover: None,
@@ -67,6 +106,22 @@ impl Button {
     /// takes part in the fill transition.
     pub(crate) fn selected_fill(mut self, fill: Hsla) -> Self {
         self.selected_fill = Some(fill);
+        self
+    }
+
+    /// A bezel (width, height) centered in a larger layout frame, both in
+    /// points. Applied at render in whole device pixels: the frame rounds
+    /// once and the margins take the bezel's rounding remainder, so the
+    /// frame stays exact while the hit area remains the bezel. Call it after
+    /// setting the nominal size and margins; a caller that later changes an
+    /// axis's size or margins keeps its own values on that axis.
+    pub(crate) fn snapped_frame(mut self, bezel: (f32, f32), frame: (f32, f32)) -> Self {
+        let defaults = axis_lengths(self.base.style());
+        self.snapped_frame = Some(SnappedFrame {
+            bezel,
+            frame,
+            defaults,
+        });
         self
     }
 
@@ -219,6 +274,18 @@ fn solid(style: &StyleRefinement) -> Option<Hsla> {
 
 impl RenderOnce for Button {
     fn render(mut self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        if let Some(frame) = self.snapped_frame {
+            let scale = window.scale_factor();
+            let [x, y] = frame.device_pixels(window.rem_size().as_f32() / 16. * scale);
+            let length = |device: f32| gpui_kit::px(device / scale);
+            let [current_x, current_y] = axis_lengths(self.base.style());
+            if current_x == frame.defaults[0] {
+                self.base = self.base.w(length(x.0)).ml(length(x.1)).mr(length(x.2));
+            }
+            if current_y == frame.defaults[1] {
+                self.base = self.base.h(length(y.0)).mt(length(y.1)).mb(length(y.2));
+            }
+        }
         let states = States::in_window(window).disabled(self.disabled);
         let window_active = states.window_active;
         // Plan D6: the role owns the fill while the rest background is the

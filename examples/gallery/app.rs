@@ -748,6 +748,7 @@ impl Gallery {
             content = content.child(
                 div()
                     .debug_selector(move || format!("filtered-article-{index}"))
+                    .w_full()
                     .flex()
                     .flex_wrap()
                     .justify_between()
@@ -1311,7 +1312,8 @@ impl Gallery {
                 "24 files",
             ),
         ];
-        let mut heading = table_row("heading", 1, cx);
+        let mut heading =
+            table_row("heading", 1, cx).debug_selector(|| "project-table-heading".into());
         for (index, title) in ["Project", "Status", "Owner", "Updated", "Files"]
             .into_iter()
             .enumerate()
@@ -1321,6 +1323,8 @@ impl Gallery {
         content = content
             .child(
                 div()
+                    .debug_selector(|| "project-table-summary".into())
+                    .w_full()
                     .flex()
                     .justify_between()
                     .child("Workspace projects")
@@ -1343,6 +1347,9 @@ impl Gallery {
                                 records.into_iter().enumerate().map(
                                     |(index, (name, label, status, owner, updated, files))| {
                                         table_row(index, index + 2, cx)
+                                            .debug_selector(move || {
+                                                format!("project-table-row-{index}")
+                                            })
                                             .child(
                                                 table_cell("name", 1, cx)
                                                     .child(div().truncate().child(name)),
@@ -3333,12 +3340,6 @@ impl Render for Gallery {
                 );
             }
         }
-        let sidebar_width =
-            if window.viewport_size().width < rems(43.75).to_pixels(window.rem_size()) {
-                9.25
-            } else {
-                13.75
-            };
         let toolbar_height = if self.native_toolbar.is_some() {
             native::native_toolbar_inset(window)
         } else {
@@ -3347,7 +3348,6 @@ impl Render for Gallery {
         let navigation = sidebar("component-sidebar", cx)
             .debug_selector(|| "component-sidebar".into())
             .track_focus(&self.navigation_focus)
-            .w(rems(sidebar_width))
             .h_full()
             .flex_shrink_0()
             .overflow_hidden()
@@ -3456,7 +3456,7 @@ impl Render for Gallery {
             bar.set_sidebar_width(if self.sidebar_hidden {
                 px(0.)
             } else {
-                rems(sidebar_width).to_pixels(window.rem_size())
+                rems(gpui_macos::tokens::SIDEBAR_IDEAL_WIDTH / 16.).to_pixels(window.rem_size())
             });
             bar.set_title(display_name(self.page));
             bar.set_enabled("zoom-in", zoom < 200);
@@ -4758,6 +4758,135 @@ mod tests {
                 )
                 .is_some()
             );
+        }
+    }
+
+    /// Spec §5.2 (C16), C3 and the page layouts compared with the SwiftUI
+    /// reference, on 1x and 2x displays at 100%, 125%, 150%, 175% and 200% zoom.
+    #[gpui_kit::test]
+    fn native_row_metrics_and_full_width_page_rows(cx: &mut TestAppContext) {
+        cx.update(gpui_macos::init);
+        let (view, cx) = cx.add_window_view(Gallery::new);
+        let near = |actual: gpui_kit::Pixels, expected: f32, what: &str| {
+            assert!(
+                (actual.as_f32() - expected).abs() <= 0.5,
+                "{what}: {actual:?} vs {expected}"
+            );
+        };
+        // A point length on the device grid (rounded half toward zero).
+        let device = |points: f32, zoom: f32, scale: f32| {
+            ((points * zoom * scale).abs() - 0.5).ceil() / scale
+        };
+        for (device_scale, zoom) in [1f32, 2.]
+            .into_iter()
+            .flat_map(|s| [100u16, 125, 150, 175, 200].map(|z| (s, z)))
+        {
+            if zoom == 100 {
+                cx.simulate_scale_factor_change(device_scale);
+            }
+            let scale = zoom as f32 / 100.;
+            let at = format!("{device_scale}x {zoom}%");
+            let render = |cx: &mut gpui_kit::VisualTestContext, page: &'static str| {
+                view.update_in(cx, |this, window, cx| {
+                    gpui_macos::set_zoom(zoom, window, cx);
+                    this.page = page;
+                    cx.notify();
+                });
+                cx.update(|window, cx| window.draw(cx).clear(cx));
+            };
+            render(cx, "table");
+            near(
+                cx.debug_bounds("component-sidebar").unwrap().size.width,
+                220. * scale,
+                "sidebar ideal width (C3)",
+            );
+            // The header is 27 pt above a one-point hairline, set as one
+            // 28 pt length; body rows are 24. Both are exact on the grid.
+            let heading = cx.debug_bounds("project-table-heading").unwrap();
+            assert_eq!(
+                heading.size.height.as_f32(),
+                device(28., scale, device_scale),
+                "{at} table header"
+            );
+            for index in 0..8 {
+                let row = cx
+                    .debug_bounds(
+                        [
+                            "project-table-row-0",
+                            "project-table-row-1",
+                            "project-table-row-2",
+                            "project-table-row-3",
+                            "project-table-row-4",
+                            "project-table-row-5",
+                            "project-table-row-6",
+                            "project-table-row-7",
+                        ][index],
+                    )
+                    .unwrap();
+                assert_eq!(
+                    row.size.height.as_f32(),
+                    device(24., scale, device_scale),
+                    "{at} table row {index}"
+                );
+            }
+            let first = cx.debug_bounds("project-table-row-0").unwrap();
+            assert_eq!(first.top(), heading.bottom(), "rows follow the header");
+            // The summary row spans the table, so its two texts separate.
+            let summary = cx.debug_bounds("project-table-summary").unwrap();
+            near(
+                summary.size.width,
+                heading.size.width.as_f32(),
+                "summary width",
+            );
+
+            render(cx, "toggle_group");
+            let article = cx.debug_bounds("filtered-article-0").unwrap();
+            let content = cx.debug_bounds("article-filter-0").unwrap();
+            assert!(
+                article.size.width > content.size.width * 4.,
+                "article rows span the page: {article:?}"
+            );
+
+            render(cx, "list");
+            for (index, label) in ["Project brief", "Meeting notes", "Design references"]
+                .into_iter()
+                .enumerate()
+            {
+                let row = cx
+                    .debug_bounds(["list-row-0", "list-row-1", "list-row-2"][index])
+                    .unwrap();
+                near(row.size.height, 24. * scale, "list row");
+                // Body text (13 pt), not Kit's 16 pt `text_base`.
+                let width = cx
+                    .debug_bounds(["list-label-0", "list-label-1", "list-label-2"][index])
+                    .unwrap()
+                    .size
+                    .width;
+                let body = cx.update(|window, cx| {
+                    let font = gpui_kit::font(cx.macos().font.clone());
+                    window
+                        .text_system()
+                        .layout_line(
+                            label,
+                            px(13. * scale),
+                            &[gpui_kit::TextRun {
+                                len: label.len(),
+                                font,
+                                color: gpui_kit::Hsla::black(),
+                                background_color: None,
+                                underline: None,
+                                strikethrough: None,
+                            }],
+                            None,
+                        )
+                        .width
+                });
+                // Layout rounds the text box up to whole pixels.
+                assert!(
+                    (width - body).abs() <= px(1.),
+                    "list label at Body size: {width:?} vs {body:?}"
+                );
+            }
         }
     }
 

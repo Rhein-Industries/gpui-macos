@@ -370,7 +370,7 @@ fn presentation(
             root.track_focus(&trigger_focus.tab_stop(true))
         })
         .w_full()
-        .rounded(rems(0.375))
+        .rounded(crate::tokens::pt(crate::tokens::CONTROL_RADIUS))
         .when(window_active, |root| {
             root.focus_visible(|s| s.shadow(t.focus_shadow()))
         });

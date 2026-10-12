@@ -48,11 +48,12 @@ pub fn native_material(
     kind: Material,
     cx: &App,
 ) -> crate::native::NativeGlass {
+    // The radius is in rems so it follows zoom; the glass resolves it at render.
     crate::native::native_glass(id, cx)
-        .corner_radius(if kind == Material::Sidebar {
-            px(0.)
+        .rounded(if kind == Material::Sidebar {
+            rems(0.)
         } else {
-            px(12.)
+            rems(0.75)
         })
         .clear(kind == Material::Hud)
 }
@@ -91,7 +92,7 @@ pub fn toolbar_group(cx: &App) -> Div {
 /// Supply a stable, sibling-unique ID and compose `toolbar_button` children.
 pub fn native_toolbar_group(id: impl Into<ElementId>, cx: &App) -> crate::native::NativeGlass {
     native_material(id, Material::Toolbar, cx)
-        .corner_radius(rems(1.125).to_pixels(px(16.)))
+        .rounded(rems(1.125))
         .flex()
         .items_center()
         .gap(rems(0.125))
@@ -136,7 +137,8 @@ pub fn sidebar(id: impl Into<ElementId>, cx: &App) -> Stateful<Div> {
         .text_color(cx.macos().foreground)
         .flex()
         .flex_col()
-        .w(rems(13.75))
+        // Ideal width, C3 (policy).
+        .w(crate::tokens::pt(crate::tokens::SIDEBAR_IDEAL_WIDTH))
         .h_full()
         .flex_shrink_0()
         .p(rems(0.5))
@@ -399,4 +401,75 @@ pub fn settings_row(
                 .h(rems(0.0625))
                 .bg(cx.macos().divider()),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui_kit::{Context, Render, TestAppContext};
+
+    struct Harness;
+    impl Render for Harness {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .items_start()
+                .child(
+                    native_material("material", Material::Popover, cx)
+                        .size(rems(4.))
+                        .flex_shrink_0()
+                        .debug_selector(|| "material".into()),
+                )
+                .child(
+                    native_toolbar_group("group", cx)
+                        .w(rems(6.))
+                        .h(rems(3.))
+                        .flex_shrink_0()
+                        .debug_selector(|| "group".into()),
+                )
+                .child(sidebar("sidebar", cx).debug_selector(|| "sidebar".into()))
+        }
+    }
+
+    /// Glass corners and the sidebar's ideal width (C3) follow zoom.
+    #[gpui_kit::test]
+    fn glass_radii_and_sidebar_width_follow_zoom(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            crate::init(cx);
+            // The opaque fallback paints the GPUI corners the glass also uses.
+            let mut theme = crate::Theme::light();
+            theme.reduce_transparency = true;
+            theme.apply(cx);
+        });
+        let (view, cx) = cx.add_window_view(|_, _| Harness);
+        for zoom in [1., 2.] {
+            cx.update(|window, cx| {
+                window.set_rem_size(px(16. * zoom));
+                view.update(cx, |_, cx| cx.notify());
+                window.draw(cx).clear(cx);
+            });
+            for (selector, radius) in [("material", 12.), ("group", 18.)] {
+                let bounds = cx.debug_bounds(selector).unwrap();
+                let painted = cx.update(|window, _| {
+                    let scaled = bounds.scale(window.scale_factor());
+                    window
+                        .painted_quads()
+                        .into_iter()
+                        .find(|quad| quad.bounds == scaled)
+                        .expect(selector)
+                        .corner_radii
+                        .top_left
+                        .0
+                        / window.scale_factor()
+                });
+                assert_eq!(painted, radius * zoom, "{selector} at {zoom}");
+            }
+            assert_eq!(
+                cx.debug_bounds("sidebar").unwrap().size.width,
+                px(220. * zoom)
+            );
+        }
+    }
 }

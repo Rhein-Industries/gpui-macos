@@ -19,7 +19,8 @@ pub fn tree(state: &Entity<TreeState>, cx: &App) -> Tree {
                 .flex()
                 .items_center()
                 .gap(rems(0.375))
-                .h(rems(1.75))
+                // Rows are 24 pt, spec §5.2 (C16).
+                .h(crate::tokens::pt(crate::tokens::ROW_HEIGHT))
                 .mx(rems(0.375))
                 .rounded(rems(0.375))
                 .pl(rems(0.375 + entry.depth() as f32 * 1.25))
@@ -116,6 +117,35 @@ mod tests {
         cx.simulate_keystrokes("right");
         cx.update(|window, cx| window.draw(cx).clear(cx));
         assert!(cx.debug_bounds("macos-tree-first").is_some());
+    }
+
+    /// Tree rows are 24 pt, spec §5.2 (C16), at 100% and 200% zoom.
+    #[gpui_kit::test]
+    fn tree_rows_are_native_list_rows_at_each_zoom(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let (view, cx) = cx.add_window_view(|_, cx| Harness {
+            state: cx.new(|cx| {
+                TreeState::new(cx).items(vec![
+                    TreeItem::new("folder", "Documents")
+                        .expanded(true)
+                        .child(TreeItem::new("first", "Brief.md")),
+                ])
+            }),
+        });
+        for zoom in [1., 2.] {
+            cx.update(|window, cx| {
+                window.set_rem_size(gpui_kit::px(16. * zoom));
+                view.update(cx, |_, cx| cx.notify());
+                window.draw(cx).clear(cx);
+            });
+            for selector in ["macos-tree-folder", "macos-tree-first"] {
+                let row = cx.debug_bounds(selector).unwrap();
+                assert!(
+                    (row.size.height.as_f32() - 24. * zoom).abs() <= 0.5,
+                    "{selector} at {zoom}: {row:?}"
+                );
+            }
+        }
     }
 
     #[gpui_kit::test]

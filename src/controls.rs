@@ -1,6 +1,11 @@
 //! Styled constructors retain gpui-base's controlled-state builder APIs.
 use crate::NativeTextStyle as _;
 use crate::state::{PaintRole, Part, States, Tint, over, paint};
+use crate::tokens::{
+    BEZEL_HEIGHT, BEZEL_PADDING_X, CHECKBOX_RADIUS, CHECKBOX_ROW_HEIGHT, CHECKBOX_SIZE,
+    CONTROL_RADIUS, ICON_BUTTON_BEZEL, ICON_BUTTON_GLYPH, ICON_BUTTON_MARGIN, INDICATOR_LABEL_GAP,
+    RADIO_DOT, RADIO_SIZE, SWITCH_LABEL_GAP, pt,
+};
 use crate::{ActiveTheme, Button, IconName, Link, icon};
 use gpui_kit::base::{Checkbox, CheckboxState, Radio, StateStyles, Switch, Tab, Tabs, Toggle};
 use gpui_kit::prelude::FluentBuilder;
@@ -60,14 +65,15 @@ impl RenderOnce for NativeCheckboxIndicator {
             .disabled(control.disabled)
             .pressed(control.pressed);
         let (well, mark) = check_paint(cx.macos(), states, on);
+        // Spec §4.4 / §4.1 (C9): a 16 pt box with radius 5.5.
         div()
-            .size(rems(1.))
+            .size(pt(CHECKBOX_SIZE))
             .debug_selector(move || format!("macos-checkbox-indicator-{id}"))
             .flex_shrink_0()
             .flex()
             .items_center()
             .justify_center()
-            .rounded(rems(0.25))
+            .rounded(pt(CHECKBOX_RADIUS))
             .bg(well)
             .text_color(mark)
             .when(on, |indicator| {
@@ -95,8 +101,9 @@ impl RenderOnce for NativeRadioIndicator {
             .disabled(control.disabled)
             .pressed(control.pressed);
         let (well, mark) = check_paint(cx.macos(), states, on);
+        // Spec §4.4: a 16 pt circle with a 5 pt dot.
         div()
-            .size(rems(1.))
+            .size(pt(RADIO_SIZE))
             .debug_selector(move || format!("macos-radio-indicator-{id}"))
             .flex_shrink_0()
             .rounded_full()
@@ -105,7 +112,7 @@ impl RenderOnce for NativeRadioIndicator {
             .items_center()
             .justify_center()
             .when(on, |indicator| {
-                indicator.child(div().size(rems(0.25)).rounded_full().bg(mark))
+                indicator.child(div().size(pt(RADIO_DOT)).rounded_full().bg(mark))
             })
     }
 }
@@ -157,12 +164,14 @@ pub fn button(
     Button::new(id)
         .accessibility_label(label.clone())
         .when(!label.is_empty(), |button| button.child(label))
-        .min_h(rems(1.5))
+        // Bezel family, spec §4.2: 24 tall (3 + 1 border + 16 Body line on
+        // each side of the label), 12 pt padding, radius 6.
+        .min_h(pt(BEZEL_HEIGHT))
         .py(rems(0.1875))
-        .px(rems(0.75))
+        .px(pt(BEZEL_PADDING_X))
         .gap(rems(0.375))
         .border_1()
-        .rounded(rems(0.375))
+        .rounded(pt(CONTROL_RADIUS))
         .border_color(t.foreground.opacity(0.))
         .font_family(t.font.clone())
         .native_text_style(crate::TextStyle::Body, cx.macos())
@@ -189,7 +198,7 @@ pub fn button(
         .styles(|s| s.disabled(|s| s.opacity(crate::tokens::CUSTOM_DISABLED_OPACITY)))
 }
 
-/// A square, icon-only button. `label` names the action for assistive tech;
+/// An icon-only bordered button (37.5 × 20.5 bezel in a 39 × 21 frame). `label` names the action for assistive tech;
 /// pair it with [`crate::with_tooltip`] so sighted users can read it too.
 pub fn icon_button(
     id: impl Into<ElementId>,
@@ -198,14 +207,29 @@ pub fn icon_button(
     variant: ButtonVariant,
     cx: &App,
 ) -> Button {
+    let (width, height) = ICON_BUTTON_BEZEL;
+    let (margin_x, margin_y) = ICON_BUTTON_MARGIN;
+    let frame = (width + 2. * margin_x, height + 2. * margin_y);
     button(id, "", variant, cx)
         .accessibility_label(label)
         .fill_duration(crate::motion::CURSOR_COLOR)
-        // Equal padding around a fixed-size glyph keeps the hit target square.
-        .p(rems(0.25))
-        .size(rems(1.5))
+        // Spec §4.2 (C7): a 37.5 × 20.5 bezel inside a 39 × 21 layout frame.
+        // The margins are outside the bezel, so the hit area is the visible
+        // bezel (no 24 pt hit-target exception). The text button's minimum
+        // height, padding and border do not apply.
+        .min_h(rems(0.))
+        .p(rems(0.))
+        .border_0()
+        .w(pt(width))
+        .h(pt(height))
+        .mx(pt(margin_x))
+        .my(pt(margin_y))
+        // Half-point lengths round separately on the device grid; at render
+        // the frame rounds once and the margins absorb the remainder.
+        .snapped_frame(ICON_BUTTON_BEZEL, frame)
+        .flex_shrink_0()
         .justify_center()
-        .child(icon(name).size(rems(0.875)))
+        .child(icon(name).size(pt(ICON_BUTTON_GLYPH)))
 }
 
 pub fn checkbox(
@@ -224,8 +248,9 @@ pub fn checkbox(
         // Hug the control and its label instead of stretching across a column.
         .self_start()
         .items_center()
-        .gap(rems(0.3125))
-        .min_h(rems(1.))
+        // Spec §4.4 (C2): a 17 pt labeled row with the box at y 0.5, gap 5.
+        .gap(pt(INDICATOR_LABEL_GAP))
+        .min_h(pt(CHECKBOX_ROW_HEIGHT))
         .rounded(rems(0.25))
         .text_color(t.foreground)
         .font_family(t.font.clone())
@@ -254,7 +279,7 @@ pub fn switch(
         // Hug the control and its label instead of stretching across a column.
         .self_start()
         .items_center()
-        .gap(rems(0.5))
+        .gap(pt(SWITCH_LABEL_GAP))
         .rounded(rems(0.75))
         .text_color(t.foreground)
         .font_family(t.font.clone())
@@ -285,8 +310,8 @@ pub fn radio(
         // Hug the control and its label instead of stretching across a column.
         .self_start()
         .items_center()
-        .gap(rems(0.3125))
-        .min_h(rems(1.))
+        .gap(pt(INDICATOR_LABEL_GAP))
+        .min_h(pt(RADIO_SIZE))
         .rounded(rems(0.25))
         .text_color(t.foreground)
         .font_family(t.font.clone())
@@ -348,11 +373,11 @@ pub fn toggle(
         .self_start()
         .items_center()
         .gap(rems(0.5))
-        .min_h(rems(1.5))
+        .min_h(pt(BEZEL_HEIGHT))
         .py(rems(0.1875))
         .px(rems(0.625))
         .border_1()
-        .rounded(rems(0.375))
+        .rounded(pt(CONTROL_RADIUS))
         .border_color(t.foreground.opacity(0.))
         .font_family(t.font.clone())
         .native_text_style(crate::TextStyle::Body, cx.macos())
@@ -437,13 +462,14 @@ pub fn link(
 /// A rounded segmented strip with gpui-base Tab semantics.
 pub fn tabs(id: impl Into<ElementId>, cx: &App) -> Tabs {
     let t = cx.macos();
+    // Segmented track, spec §4.2: 24 tall, radius 6.
     Tabs::new(id)
         .flex()
-        .h(rems(1.5))
+        .h(pt(BEZEL_HEIGHT))
         .items_center()
         .gap(rems(0.125))
         .p(rems(0.0625))
-        .rounded(rems(0.375))
+        .rounded(pt(CONTROL_RADIUS))
         .bg(paint(
             PaintRole::Segment { selected: false },
             Part::Track,
@@ -464,7 +490,7 @@ pub fn tab(
         .selected(selected)
         .accessibility_label(label.clone())
         .child(label)
-        .px_3()
+        .px(pt(BEZEL_PADDING_X))
         .h(rems(1.375))
         .py(rems(0.))
         .flex()
@@ -682,7 +708,7 @@ mod tests {
                 .find(|quad| {
                     quad.bounds.center() == center.scale(window.scale_factor())
                         && quad.bounds.size
-                            == gpui_kit::size(gpui_kit::px(4.), gpui_kit::px(4.))
+                            == gpui_kit::size(gpui_kit::px(5.), gpui_kit::px(5.))
                                 .scale(window.scale_factor())
                 })
                 .unwrap()
@@ -1486,6 +1512,257 @@ mod tests {
         }
     }
 
+    struct MetricsHarness {
+        clicks: usize,
+    }
+
+    impl Render for MetricsHarness {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .items_start()
+                .child(
+                    // A toolbar-style row: a text button beside an icon button.
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(rems(0.5))
+                        .child(
+                            button("metric-text", "Add", ButtonVariant::Outline, cx)
+                                .debug_selector(|| "metric-text".into()),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .debug_selector(|| "metric-icon-frame".into())
+                                .child(
+                                    icon_button(
+                                        "metric-icon",
+                                        IconName::Plus,
+                                        "Add",
+                                        ButtonVariant::Outline,
+                                        cx,
+                                    )
+                                    .debug_selector(|| "metric-icon".into())
+                                    .on_click(cx.listener(
+                                        |this, _, _, cx| {
+                                            this.clicks += 1;
+                                            cx.notify();
+                                        },
+                                    )),
+                                ),
+                        ),
+                )
+                .child(
+                    checkbox("metric-checkbox", "Remember me", CheckboxState::Checked, cx)
+                        .debug_selector(|| "metric-checkbox".into()),
+                )
+                // Caller geometry wins over the snapped defaults.
+                .child(
+                    div()
+                        .flex()
+                        .debug_selector(|| "sized-icon-frame".into())
+                        .child(
+                            icon_button(
+                                "sized-icon",
+                                IconName::Plus,
+                                "Add",
+                                ButtonVariant::Outline,
+                                cx,
+                            )
+                            .size(gpui_kit::px(32.))
+                            .ml(gpui_kit::px(8.))
+                            .debug_selector(|| "sized-icon".into()),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .debug_selector(|| "margin-icon-frame".into())
+                        .child(
+                            icon_button(
+                                "margin-icon",
+                                IconName::Plus,
+                                "Add",
+                                ButtonVariant::Outline,
+                                cx,
+                            )
+                            .ml(gpui_kit::px(8.))
+                            .debug_selector(|| "margin-icon".into()),
+                        ),
+                )
+        }
+    }
+
+    /// A point length on the device grid, rounded half toward zero as GPUI
+    /// layout does, in logical pixels.
+    fn device(points: f32, zoom: f32, scale: f32) -> f32 {
+        ((points * zoom * scale).abs() - 0.5).ceil() / scale
+    }
+
+    /// Spec §4.2 (C7) and §4.4 (C2, C9) on 1x and 2x displays at 100%, 125%
+    /// and 200% zoom.
+    #[gpui_kit::test]
+    fn icon_button_and_checkbox_row_follow_native_metrics(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let (view, cx) = cx.add_window_view(|_, _| MetricsHarness { clicks: 0 });
+        cx.simulate_mouse_move(
+            gpui_kit::point(gpui_kit::px(600.), gpui_kit::px(600.)),
+            None,
+            Default::default(),
+        );
+        let near = |actual: gpui_kit::Pixels, expected: f32, what: &str| {
+            assert!(
+                (actual.as_f32() - expected).abs() <= 0.5,
+                "{what}: {actual:?} vs {expected}"
+            );
+        };
+        for scale in [1., 2.] {
+            cx.simulate_scale_factor_change(scale);
+            for zoom in [1., 1.25, 2.] {
+                let at = format!("{scale}x {zoom}");
+                cx.update(|window, cx| {
+                    window.set_rem_size(gpui_kit::px(16. * zoom));
+                    view.update(cx, |_, cx| cx.notify());
+                    window.draw(cx).clear(cx);
+                });
+                // The layout frame is exactly 39 × 21 on the device grid; the
+                // margins absorb the bezel's rounding.
+                let frame = cx.debug_bounds("metric-icon-frame").unwrap();
+                let bezel = cx.debug_bounds("metric-icon").unwrap();
+                assert_eq!(frame.size.width.as_f32(), device(39., zoom, scale), "{at}");
+                assert_eq!(frame.size.height.as_f32(), device(21., zoom, scale), "{at}");
+                assert_eq!(bezel.size.width.as_f32(), device(37.5, zoom, scale), "{at}");
+                assert_eq!(
+                    bezel.size.height.as_f32(),
+                    device(20.5, zoom, scale),
+                    "{at}"
+                );
+                let margins = [
+                    ("left", bezel.left() - frame.left(), 0.75),
+                    ("right", frame.right() - bezel.right(), 0.75),
+                    ("top", bezel.top() - frame.top(), 0.25),
+                    ("bottom", frame.bottom() - bezel.bottom(), 0.25),
+                ];
+                // Each margin is within one device pixel of its nominal value.
+                for (edge, margin, nominal) in margins {
+                    assert!(
+                        margin >= gpui_kit::px(0.)
+                            && (margin.as_f32() - nominal * zoom).abs() <= 1. / scale,
+                        "{at} {edge} margin {margin:?} vs {}",
+                        nominal * zoom
+                    );
+                }
+                // Text and icon buttons share a centerline in a row.
+                let text = cx.debug_bounds("metric-text").unwrap();
+                near(
+                    bezel.center().y,
+                    text.center().y.as_f32(),
+                    &format!("{at} row alignment"),
+                );
+                assert_eq!(
+                    painted_background(cx, "metric-icon"),
+                    cx.update(|_, cx| cx.macos().bezel_fill()),
+                    "the bezel fills exactly the hit bounds"
+                );
+                // A press in any margin misses; just inside each bezel edge
+                // activates. The hit area is the visible bezel.
+                let pixel = gpui_kit::px(1. / scale);
+                let (x, y) = (bezel.center().x, bezel.center().y);
+                for (edge, margin, _) in margins {
+                    if margin < pixel {
+                        continue;
+                    }
+                    let half = margin / 2.;
+                    let point = match edge {
+                        "left" => gpui_kit::point(frame.left() + half, y),
+                        "right" => gpui_kit::point(frame.right() - half, y),
+                        "top" => gpui_kit::point(x, frame.top() + half),
+                        _ => gpui_kit::point(x, frame.bottom() - half),
+                    };
+                    let before = cx.update(|_, cx| view.read(cx).clicks);
+                    cx.simulate_click(point, Default::default());
+                    cx.update(|window, cx| window.draw(cx).clear(cx));
+                    assert_eq!(
+                        cx.update(|_, cx| view.read(cx).clicks),
+                        before,
+                        "{at} press in the {edge} margin"
+                    );
+                }
+                for point in [
+                    gpui_kit::point(bezel.left() + pixel / 2., y),
+                    gpui_kit::point(bezel.right() - pixel / 2., y),
+                    gpui_kit::point(x, bezel.top() + pixel / 2.),
+                    gpui_kit::point(x, bezel.bottom() - pixel / 2.),
+                ] {
+                    let before = cx.update(|_, cx| view.read(cx).clicks);
+                    cx.simulate_click(point, Default::default());
+                    cx.update(|window, cx| window.draw(cx).clear(cx));
+                    assert_eq!(
+                        cx.update(|_, cx| view.read(cx).clicks),
+                        before + 1,
+                        "{at} press at {point:?} inside the bezel"
+                    );
+                }
+
+                // A caller size and margin survive rendering; an axis the
+                // caller left alone is still snapped.
+                let sized = cx.debug_bounds("sized-icon").unwrap();
+                let sized_frame = cx.debug_bounds("sized-icon-frame").unwrap();
+                assert_eq!(
+                    sized.size,
+                    gpui_kit::size(gpui_kit::px(32.), gpui_kit::px(32.))
+                );
+                assert_eq!(sized.left() - sized_frame.left(), gpui_kit::px(8.), "{at}");
+                let margin = cx.debug_bounds("margin-icon").unwrap();
+                let margin_frame = cx.debug_bounds("margin-icon-frame").unwrap();
+                assert_eq!(
+                    margin.left() - margin_frame.left(),
+                    gpui_kit::px(8.),
+                    "{at}"
+                );
+                assert_eq!(
+                    margin_frame.size.height.as_f32(),
+                    device(21., zoom, scale),
+                    "{at}"
+                );
+                assert_eq!(
+                    margin.size.height.as_f32(),
+                    device(20.5, zoom, scale),
+                    "{at}"
+                );
+
+                // Labeled checkbox: 17 pt row, 16 pt box at y 0.5, radius 5.5.
+                let row = cx.debug_bounds("metric-checkbox").unwrap();
+                let indicator = cx
+                    .debug_bounds("macos-checkbox-indicator-metric-checkbox")
+                    .unwrap();
+                near(row.size.height, 17. * zoom, &format!("{at} checkbox row"));
+                near(indicator.size.width, 16. * zoom, "checkbox box width");
+                near(indicator.size.height, 16. * zoom, "checkbox box height");
+                // The 0.5 pt offset snaps to the device grid.
+                let offset = (indicator.top() - row.top()).as_f32();
+                assert!(
+                    (offset - 0.5 * zoom).abs() <= 1. / scale,
+                    "{at} checkbox box y {offset}"
+                );
+                near(indicator.left() - row.left(), 0., "checkbox box x");
+                let radius = cx.update(|window, _| {
+                    let scaled = indicator.scale(window.scale_factor());
+                    let quad = window
+                        .painted_quads()
+                        .into_iter()
+                        .find(|quad| quad.bounds == scaled)
+                        .expect("checkbox well");
+                    quad.corner_radii.top_left.0 / window.scale_factor()
+                });
+                near(gpui_kit::px(radius), 5.5 * zoom, "checkbox radius");
+            }
+        }
+    }
+
     /// Preserve the actual AppKit baseline while independently scaling GPUI.
     /// Native intrinsic widths depend on the platform font and are intentionally
     /// left flexible; intrinsic heights and switch geometry are authoritative.
@@ -1534,13 +1811,21 @@ mod tests {
                     ("measured-popup", "popup"),
                     ("measured-slider", "slider"),
                 ] {
-                    let expected = reference[appearance]["controls"][native]["intrinsic_height"]
-                        .as_f64()
-                        .unwrap() as f32
-                        * zoom;
+                    // The labeled checkbox row follows SwiftUI's 17 pt over
+                    // AppKit's 16 (spec §4.4, C2).
+                    let native_height = if native == "checkbox" {
+                        crate::tokens::CHECKBOX_ROW_HEIGHT
+                    } else {
+                        reference[appearance]["controls"][native]["intrinsic_height"]
+                            .as_f64()
+                            .unwrap() as f32
+                    };
+                    let expected = native_height * zoom;
                     let actual = cx.debug_bounds(selector).unwrap().size.height.as_f32();
+                    // ±0.5 pt (plan Verification): layout snaps a fractional
+                    // size such as 17 × 1.25 to whole device pixels.
                     assert!(
-                        (actual - expected).abs() < 0.1,
+                        (actual - expected).abs() <= 0.5,
                         "{appearance} {zoom} {selector}: {actual} vs native {expected}"
                     );
                 }

@@ -2,20 +2,15 @@
 use crate::ActiveTheme;
 use crate::motion::{CONTROL_COLOR, SWITCH_TRAVEL, color, out_cubic};
 use crate::state::{PaintRole, Part, States, paint};
+use crate::tokens::{SWITCH_INSET, SWITCH_KNOB, SWITCH_TRACK, pt};
 use gpui_kit::base::motion::transition;
 use gpui_kit::base::{SwitchThumb, SwitchTrack};
 use gpui_kit::{
-    App, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce, Styled, Window,
-    div, rems,
+    App, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce, Styled, Window, div,
 };
 
-/// Native 54 × 24 track, 32 × 20 pill, and two-point inset at 100% zoom.
-const TRACK_WIDTH: f32 = 3.375;
-const TRACK_HEIGHT: f32 = 1.5;
-const THUMB_WIDTH: f32 = 2.;
-const THUMB_HEIGHT: f32 = 1.25;
-const TRACK_INSET: f32 = 0.125;
-const KNOB_TRAVEL: f32 = TRACK_WIDTH - TRACK_INSET * 2. - THUMB_WIDTH;
+/// Native 54 × 24 track, 32 × 20 pill, and two-point inset (spec §4.5).
+const KNOB_TRAVEL: f32 = SWITCH_TRACK.0 - SWITCH_INSET * 2. - SWITCH_KNOB.0;
 
 /// A switch's track and knob. Rendered inside the switch, so its motion state
 /// is keyed within the switch's element scope.
@@ -93,10 +88,10 @@ impl RenderOnce for SwitchMotion {
         let id = self.id;
         SwitchTrack::new(id.clone())
             .checked(checked)
-            .w(rems(TRACK_WIDTH))
-            .h(rems(TRACK_HEIGHT))
+            .w(pt(SWITCH_TRACK.0))
+            .h(pt(SWITCH_TRACK.1))
             .flex_shrink_0()
-            .p(rems(TRACK_INSET))
+            .p(pt(SWITCH_INSET))
             .rounded_full()
             .bg(track_bg)
             .debug_selector({
@@ -105,12 +100,12 @@ impl RenderOnce for SwitchMotion {
             })
             .child(
                 SwitchThumb::new(checked)
-                    .w(rems(THUMB_WIDTH))
-                    .h(rems(THUMB_HEIGHT))
+                    .w(pt(SWITCH_KNOB.0))
+                    .h(pt(SWITCH_KNOB.1))
                     .rounded_full()
                     .bg(thumb_bg)
                     .shadow(crate::tokens::switch_knob_shadow(&t))
-                    .ml(rems(KNOB_TRAVEL * travel))
+                    .ml(pt(KNOB_TRAVEL * travel))
                     .child(
                         div()
                             .size_full()

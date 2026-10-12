@@ -281,7 +281,7 @@ impl RenderOnce for NativeProgressPaint {
         ProgressTrack::new()
             .relative()
             .w_full()
-            .h(rems(0.5))
+            .h(crate::tokens::pt(crate::tokens::PROGRESS_LINEAR))
             .rounded_full()
             .overflow_hidden()
             .bg(gpui_kit::rgb(if t.is_dark() { 0x404144 } else { 0xd8d8d8 }))

@@ -1,5 +1,44 @@
 # Changelog
 
+## Unreleased — M3 control and row metrics (regular size)
+
+### Added
+
+- `interpretation::list_item`: a Kit `ListItem` with Body text and a 24 pt
+  minimum height. Raw `kit::list::ListItem` keeps Kit's 16 pt text.
+- `tokens::SIDEBAR_IDEAL_WIDTH` (220 pt), the width `sidebar()` uses.
+
+### Changed
+
+- Icon-only buttons (`icon_button`) now have a 37.5 × 20.5 pt bezel inside a
+  39 × 21 pt layout frame and a 10.5 pt glyph. Before, they were a 24 × 24
+  square. The hit area is the visible bezel; there is no larger hit target.
+  On the device-pixel grid the frame stays exact and the margins absorb the
+  bezel's half-point rounding (for example 39 × 21 with a 37 × 20 bezel on a
+  1x display at 100%). A caller `.w()`, `.h()`, `.size()` or margin still
+  wins on that axis.
+- Checkboxes: the box has a 5.5 pt corner radius (was 4) and a labeled row
+  is 17 pt tall (was 16), with the box 0.5 pt from the top. Radio buttons
+  have a 5 pt dot (was 4). The 5 pt label gap is unchanged.
+- Table body rows are 24 pt (cell padding 4 instead of 6; was 28). Header
+  cells are 27 pt plus a separator, set as one fixed 28 pt height that
+  rounds once on the device grid and that content cannot exceed (was 28 + 1).
+  The label is centered on a 27 pt line instead of vertical padding. The separator is a one-point
+  hairline at 100% zoom (two device pixels on Retina) that now scales with
+  zoom, an approximation of the measured 1.5 pt. Tree rows are 24 pt
+  (was 28).
+- Native glass corners in `native_material` (12 pt) and
+  `native_toolbar_group` (18 pt) now scale with zoom. Before, they stayed
+  fixed in pixels.
+- Bezel, pop-up, segmented, field, switch, slider and progress sizes now come
+  from shared tokens. Their values are unchanged: 24 pt tall controls,
+  12 pt padding, radius 6, search field capsule, switch 54 × 24, slider track
+  6, linear progress 8.
+- Gallery: the sidebar is always 220 pt wide; the narrower sidebar for small
+  windows is gone. The table summary row and the toggle-group article rows
+  now span the page width. The list page uses `list_item`, so its rows show
+  13 pt text instead of 16 pt.
+
 ## Unreleased — M2 state rules
 
 ### Added

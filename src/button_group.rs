@@ -1,6 +1,7 @@
 //! Exclusive settings and page navigation with one keyboard stop per group.
 use crate::NativeTextStyle as _;
 use crate::state::{PaintRole, Part, paint};
+use crate::tokens::{BEZEL_HEIGHT, BEZEL_PADDING_X, CONTROL_RADIUS, pt};
 use crate::{ActiveTheme, ChoiceItem};
 use gpui_kit::base::{
     Radio, RadioGroup, Tabs,
@@ -86,7 +87,7 @@ pub fn button_group(
                 .flex_shrink(1.)
                 .min_w_0()
                 .justify_center()
-                .px_3()
+                .px(pt(BEZEL_PADDING_X))
                 .h(rems(1.375))
                 .py(rems(0.))
                 .border_1()
@@ -149,10 +150,11 @@ pub fn button_group(
             .axis(gpui_kit::Axis::Horizontal)
             .flex()
             .w_full()
-            .h(rems(1.5))
+            // Segmented track, spec §4.2: 24 tall, radius 6.
+            .h(pt(BEZEL_HEIGHT))
             .gap(rems(0.125))
             .p(rems(0.0625))
-            .rounded(rems(0.375))
+            .rounded(pt(CONTROL_RADIUS))
             .bg(paint(
                 PaintRole::Segment { selected: false },
                 Part::Track,

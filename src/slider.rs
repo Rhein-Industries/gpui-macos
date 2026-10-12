@@ -3,6 +3,7 @@
 use crate::ActiveTheme;
 use crate::motion::{SLIDER_KNOB_SCALE, SLIDER_TRAVEL, out_cubic};
 use crate::state::{PaintRole, Part, States, paint};
+use crate::tokens::{SLIDER_HEIGHT, SLIDER_KNOB, SLIDER_TRACK, pt};
 use gpui_kit::base::motion::{Transition, transition};
 use gpui_kit::base::{
     Slider, SliderIndicator, SliderThumb, SliderTrack,
@@ -17,11 +18,11 @@ use std::time::Duration;
 
 /// A subtle enlargement helps identify the thumb under the pointer.
 const HOT_KNOB_SCALE: f32 = 1.06;
-/// The native resting thumb is a 20 × 16 pill at 100% zoom.
-const KNOB_WIDTH: f32 = 1.25;
-const KNOB_HEIGHT: f32 = 1.;
+/// The native resting thumb is a 20 × 16 pill, spec §4.5 (in rems).
+const KNOB_WIDTH: f32 = SLIDER_KNOB.0 / 16.;
+const KNOB_HEIGHT: f32 = SLIDER_KNOB.1 / 16.;
 /// The knob's vertical center within the native 16-point slider.
-const KNOB_CENTER: f32 = 0.5;
+const KNOB_CENTER: f32 = SLIDER_HEIGHT / 2. / 16.;
 
 /// Compose themed base parts. Pass disabled here so both track and thumbs are inert.
 /// The returned base Slider remains available for layout/style customization.
@@ -87,13 +88,13 @@ pub fn slider(
         .child(
             SliderIndicator::new(state)
                 .absolute()
-                .top(rems(0.3125))
+                .top(pt((SLIDER_HEIGHT - SLIDER_TRACK) / 2.))
                 // The native bar fills the control's width, while the value
                 // mapping keeps each thumb center half a thumb from the ends.
                 .left(rems(KNOB_WIDTH / 2.))
                 .right(rems(KNOB_WIDTH / 2.))
                 .w_auto()
-                .h(rems(0.375))
+                .h(pt(SLIDER_TRACK))
                 .child(
                     div()
                         .absolute()
@@ -232,7 +233,7 @@ pub fn slider(
     Slider::new(state)
         .disabled(disabled)
         .w_full()
-        .h(rems(1.))
+        .h(pt(SLIDER_HEIGHT))
         .child(track)
 }
 
