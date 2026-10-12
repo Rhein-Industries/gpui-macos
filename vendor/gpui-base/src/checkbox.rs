@@ -1,4 +1,4 @@
-// Modified by gpui-macos contributors in 2026: render-time control state children.
+// Modified by gpui-macos contributors in 2026: render-time control state children and keyboard focus visibility.
 // Original: longbridge/gpui-kit 0bbd9870ce420af9feacbf948b21d3824d82dc0b.
 // Copyright 2024-2026 Longbridge; Apache-2.0. See LICENSE-APACHE and MACOS-PATCH.md.
 
@@ -74,13 +74,25 @@ impl Checkbox {
     }
 
     /// Adds a child built with the final render-time control state.
-    /// `focus_visible` is currently false; focus producers are added separately.
+    /// `focus_visible` is true while the control shows keyboard focus.
     pub fn child_with_state<E: IntoElement>(
         mut self,
         build: impl FnOnce(crate::ControlState) -> E + 'static,
     ) -> Self {
         self.children
             .push(crate::state_child::StateChild::state(build));
+        self
+    }
+
+    /// Adds a child built with the final render-time control state and the
+    /// control's final resolved style (defaults beneath caller styles), for
+    /// example a focus ring that follows the control's radius and border.
+    pub fn child_with_resolved_style<E: IntoElement>(
+        mut self,
+        build: impl FnOnce(crate::ControlState, &StyleRefinement) -> E + 'static,
+    ) -> Self {
+        self.children
+            .push(crate::state_child::StateChild::styled(build));
         self
     }
     /// Creates an unchecked checkbox with a stable element identifier.
@@ -397,7 +409,8 @@ impl RenderOnce for Checkbox {
         let pressed = *press.read(cx);
         let control_state =
             crate::ControlState::new(disabled, self.state != CheckboxState::Unchecked)
-                .with_pressed(pressed);
+                .with_pressed(pressed)
+                .with_focus(Some(&focus_handle), window);
         let style = self.resolved_style();
         let on_change = self.on_change;
 
@@ -431,7 +444,7 @@ impl RenderOnce for Checkbox {
             .children(
                 self.children
                     .into_iter()
-                    .map(|child| child.resolve(control_state)),
+                    .map(|child| child.resolve(control_state, &style)),
             )
             .refine_style(&style)
     }
@@ -746,6 +759,193 @@ mod tests {
         cx.update(|window, _| window.activate_window());
         cx.run_until_parked();
         assert!(!pressed(cx), "reactivation does not restore the press");
+    }
+
+    #[gpui::test]
+    fn focus_visible_follows_keyboard_focus_in_an_active_window(cx: &mut TestAppContext) {
+        const CONTROLS: usize = 5;
+        struct View {
+            focus: Vec<FocusHandle>,
+            seen: Rc<RefCell<Vec<(usize, bool)>>>,
+            disabled: bool,
+        }
+        impl Render for View {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                let record = |index: usize| {
+                    let seen = self.seen.clone();
+                    move |state: crate::ControlState| {
+                        seen.borrow_mut().push((index, state.focus_visible));
+                        div()
+                    }
+                };
+                let disabled = self.disabled;
+                div()
+                    .child(
+                        Checkbox::new("focus-checkbox")
+                            .track_focus(&self.focus[0])
+                            .child_with_state(record(0))
+                            .disabled(disabled),
+                    )
+                    .child(
+                        crate::Radio::new("focus-radio")
+                            .track_focus(&self.focus[1])
+                            .child_with_state(record(1))
+                            .disabled(disabled),
+                    )
+                    .child(
+                        crate::Switch::new("focus-switch")
+                            .track_focus(&self.focus[2])
+                            .child_with_state(record(2))
+                            .disabled(disabled),
+                    )
+                    .child(
+                        crate::Toggle::new("focus-toggle")
+                            .track_focus(&self.focus[3])
+                            .child_with_state(record(3))
+                            .disabled(disabled),
+                    )
+                    .child(
+                        crate::Tab::new("focus-tab")
+                            .track_focus(&self.focus[4])
+                            .child_with_state(record(4))
+                            .disabled(disabled),
+                    )
+            }
+        }
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let view_seen = seen.clone();
+        let (view, cx) = cx.add_window_view(move |_, cx| View {
+            focus: (0..CONTROLS).map(|_| cx.focus_handle()).collect(),
+            seen: view_seen,
+            disabled: false,
+        });
+        cx.update(|window, _| window.activate_window());
+        cx.run_until_parked();
+        let visible = |cx: &mut VisualTestContext| {
+            seen.borrow_mut().clear();
+            cx.update(|window, cx| {
+                window.refresh();
+                window.draw(cx).clear(cx)
+            });
+            let mut visible = [false; CONTROLS];
+            for (index, focus_visible) in seen.borrow().iter() {
+                visible[*index] = *focus_visible;
+            }
+            visible
+        };
+        for index in 0..CONTROLS {
+            let focus = view.read_with(cx, |view, _| view.focus[index].clone());
+            cx.update(|window, cx| window.focus(&focus, cx));
+            // Pointer input: focused but not keyboard-visible.
+            cx.simulate_mouse_move(point(px(500.), px(500.)), None, Modifiers::default());
+            assert_eq!(visible(cx), [false; CONTROLS], "{index}: pointer focus");
+            cx.simulate_keystrokes("x");
+            let mut expected = [false; CONTROLS];
+            expected[index] = true;
+            assert_eq!(visible(cx), expected, "{index}: keyboard focus");
+            cx.deactivate_window();
+            assert_eq!(visible(cx), [false; CONTROLS], "{index}: inactive window");
+            cx.update(|window, _| window.activate_window());
+            cx.run_until_parked();
+        }
+        view.update(cx, |view, cx| {
+            view.disabled = true;
+            cx.notify();
+        });
+        let focus = view.read_with(cx, |view, _| view.focus[0].clone());
+        cx.update(|window, cx| window.focus(&focus, cx));
+        cx.simulate_keystrokes("x");
+        assert_eq!(
+            visible(cx),
+            [false; CONTROLS],
+            "disabled controls never show focus"
+        );
+    }
+
+    #[gpui::test]
+    fn group_focus_indicators_accordions_and_styled_children(cx: &mut TestAppContext) {
+        struct View {
+            group: FocusHandle,
+            trigger: FocusHandle,
+            seen: Rc<RefCell<Vec<(&'static str, bool, Option<gpui::AbsoluteLength>)>>>,
+        }
+        impl Render for View {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                let record = |name: &'static str| {
+                    let seen = self.seen.clone();
+                    move |state: crate::ControlState, style: &StyleRefinement| {
+                        seen.borrow_mut().push((
+                            name,
+                            state.focus_visible,
+                            style.corner_radii.top_left,
+                        ));
+                        div()
+                    }
+                };
+                div()
+                    .track_focus(&self.group)
+                    .child(
+                        crate::Radio::new("current")
+                            .focus_indicator(&self.group)
+                            .rounded(px(7.))
+                            .child_with_resolved_style(record("current")),
+                    )
+                    .child(crate::Radio::new("other").child_with_resolved_style(record("other")))
+                    .child(
+                        crate::AccordionTrigger::new("trigger")
+                            .track_focus(&self.trigger)
+                            .rounded(px(9.))
+                            .child_with_resolved_style(record("trigger")),
+                    )
+            }
+        }
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let view_seen = seen.clone();
+        let (view, cx) = cx.add_window_view(move |_, cx| View {
+            group: cx.focus_handle(),
+            trigger: cx.focus_handle(),
+            seen: view_seen,
+        });
+        cx.update(|window, _| window.activate_window());
+        cx.run_until_parked();
+        let state = |cx: &mut VisualTestContext| {
+            seen.borrow_mut().clear();
+            cx.update(|window, cx| {
+                window.refresh();
+                window.draw(cx).clear(cx)
+            });
+            seen.borrow().clone()
+        };
+        let group = view.read_with(cx, |view, _| view.group.clone());
+        cx.update(|window, cx| window.focus(&group, cx));
+        cx.simulate_keystrokes("x");
+        assert_eq!(
+            state(cx),
+            [
+                ("current", true, Some(px(7.).into())),
+                ("other", false, None),
+                ("trigger", false, Some(px(9.).into())),
+            ],
+            "the group's keyboard focus marks the current option only"
+        );
+        cx.deactivate_window();
+        assert!(
+            state(cx).iter().all(|(_, visible, _)| !visible),
+            "inactive window"
+        );
+        cx.update(|window, _| window.activate_window());
+        cx.run_until_parked();
+        let trigger = view.read_with(cx, |view, _| view.trigger.clone());
+        cx.update(|window, cx| window.focus(&trigger, cx));
+        cx.simulate_keystrokes("x");
+        assert_eq!(
+            state(cx)
+                .iter()
+                .map(|(_, visible, _)| *visible)
+                .collect::<Vec<_>>(),
+            [false, false, true],
+            "a tracked accordion trigger reports keyboard focus"
+        );
     }
 
     #[gpui::test]

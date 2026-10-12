@@ -5,12 +5,12 @@ use gpui_kit::{App, Bounds, Hsla, Pixels, SharedString, Window, px};
 use objc2::runtime::{AnyClass, AnyObject, ProtocolObject};
 use objc2::{DefinedClass, MainThreadOnly, define_class, msg_send, rc::Retained, sel};
 use objc2_app_kit::{
-    NSAppearance, NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSAutoresizingMaskOptions,
-    NSColor, NSColorSpace, NSControlTextDidChangeNotification, NSControlTextEditingDelegate,
-    NSGlassEffectView, NSGlassEffectViewStyle, NSImage, NSLayoutAttribute, NSOutlineView, NSPanel,
-    NSSearchField, NSSearchFieldDelegate, NSTableViewRowSizeStyle, NSTableViewStyle,
-    NSTextFieldDelegate, NSTitlebarAccessoryViewController, NSToolbar, NSToolbarDelegate,
-    NSToolbarDisplayMode, NSToolbarItem, NSUserInterfaceItemIdentification, NSView, NSWindow,
+    NSAutoresizingMaskOptions, NSColor, NSControlTextDidChangeNotification,
+    NSControlTextEditingDelegate, NSGlassEffectView, NSGlassEffectViewStyle, NSImage,
+    NSLayoutAttribute, NSOutlineView, NSPanel, NSSearchField, NSSearchFieldDelegate,
+    NSTableViewRowSizeStyle, NSTableViewStyle, NSTextFieldDelegate,
+    NSTitlebarAccessoryViewController, NSToolbar, NSToolbarDelegate, NSToolbarDisplayMode,
+    NSToolbarItem, NSUserInterfaceItemIdentification, NSView, NSWindow,
     NSWindowDidExitFullScreenNotification, NSWindowOrderingMode, NSWindowStyleMask,
     NSWindowTitleVisibility, NSWindowToolbarStyle,
 };
@@ -65,37 +65,6 @@ pub(super) fn refresh_sidebar_metrics() {
     SIDEBAR_OUTLINE.with(|cache| {
         cache.borrow_mut().take();
     });
-}
-
-pub(super) fn sidebar_inactive_selection(dark: bool) -> Option<Hsla> {
-    let _ = main_thread().ok()?;
-    // SAFETY: These are immutable AppKit appearance-name constants.
-    let name = unsafe {
-        if dark {
-            NSAppearanceNameDarkAqua
-        } else {
-            NSAppearanceNameAqua
-        }
-    };
-    let appearance = NSAppearance::appearanceNamed(name)?;
-    let result = Cell::new(None);
-    let sample = block2::RcBlock::new(|| {
-        if let Some(color) = NSColor::unemphasizedSelectedContentBackgroundColor()
-            .colorUsingColorSpace(&NSColorSpace::sRGBColorSpace())
-        {
-            result.set(Some(
-                gpui_kit::Rgba {
-                    r: color.redComponent() as f32,
-                    g: color.greenComponent() as f32,
-                    b: color.blueComponent() as f32,
-                    a: color.alphaComponent() as f32,
-                }
-                .into(),
-            ));
-        }
-    });
-    appearance.performAsCurrentDrawingAppearance(&sample);
-    result.get()
 }
 
 fn renderer_view(window: &Window) -> anyhow::Result<Retained<NSView>> {

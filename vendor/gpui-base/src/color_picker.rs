@@ -1,3 +1,7 @@
+// Modified by gpui-macos contributors in 2026: render-time state children with the resolved style on ColorPicker.
+// Original: longbridge/gpui-kit 0bbd9870ce420af9feacbf948b21d3824d82dc0b.
+// Copyright 2024-2026 Longbridge; Apache-2.0. See LICENSE-APACHE and MACOS-PATCH.md.
+
 use crate::input::InputState;
 use std::rc::Rc;
 
@@ -470,13 +474,25 @@ pub struct ColorPicker {
     focus_handle: Option<FocusHandle>,
     accessibility_label: Option<SharedString>,
     style: StyleRefinement,
-    children: SmallVec<[AnyElement; 2]>,
+    children: SmallVec<[crate::state_child::StateChild; 2]>,
     on_open_change: Option<OpenChangeHandler>,
     key_context: &'static str,
     role: RoleOverride,
 }
 
 impl ColorPicker {
+    /// Adds a child built at render with the final control state and the
+    /// final resolved style, for example a focus ring that follows the
+    /// control's radius and border. `checked` is the open state; `focus_visible` follows the handle passed to `track_focus`.
+    pub fn child_with_resolved_style<E: IntoElement>(
+        mut self,
+        build: impl FnOnce(crate::ControlState, &StyleRefinement) -> E + 'static,
+    ) -> Self {
+        self.children
+            .push(crate::state_child::StateChild::styled(build));
+        self
+    }
+
     pub fn new(id: impl Into<ElementId>) -> Self {
         Self {
             base: div().id(id),
@@ -548,7 +564,11 @@ impl Styled for ColorPicker {
 
 impl ParentElement for ColorPicker {
     fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
-        self.children.extend(elements);
+        self.children.extend(
+            elements
+                .into_iter()
+                .map(crate::state_child::StateChild::Ready),
+        );
     }
 }
 
@@ -561,10 +581,13 @@ impl InteractiveElement for ColorPicker {
 impl StatefulInteractiveElement for ColorPicker {}
 
 impl RenderOnce for ColorPicker {
-    fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, _: &mut App) -> impl IntoElement {
         let open = self.open;
         let disabled = self.disabled;
         let handler = self.on_open_change;
+        let control_state =
+            crate::ControlState::new(disabled, open).with_focus(self.focus_handle.as_ref(), window);
+        let style = self.style;
 
         self.base
             .when_some(self.role.resolve(|| Role::Button), |this, role| {
@@ -601,8 +624,12 @@ impl RenderOnce for ColorPicker {
                     handler(false, window, cx);
                 }
             })
-            .children(self.children)
-            .refine_style(&self.style)
+            .children(
+                self.children
+                    .into_iter()
+                    .map(|child| child.resolve(control_state, &style)),
+            )
+            .refine_style(&style)
     }
 }
 

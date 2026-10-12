@@ -1,5 +1,100 @@
 # Changelog
 
+## Unreleased — M4 focus ring, hover, selection
+
+### Added
+
+- `Theme::focus_ring` (`focus_ring_control`, about #0C6BFB / #25AFFF @0.49;
+  a custom accent at the same alpha), `Theme::selected_content` (#0064E1 /
+  #0059D1), `Theme::unemphasized_selected_content` (#DCDCDC / #464646),
+  `Theme::alternating_row` (#F4F5F5 / white @0.047) and
+  `Theme::tertiary_fill` (ink @0.047).
+- `row_selection(emphasized, window, cx) -> (fill, foreground)` for
+  application-owned list and table selection: `selected_content` with white
+  text while emphasized in a key window, otherwise
+  `unemphasized_selected_content` with the label color.
+- `Button::selection_emphasis(bool)` (default `true`) for sidebar rows: pass
+  whether the sidebar holds keyboard focus.
+- Base `ControlState::focus_visible` is now produced by Checkbox, Radio,
+  Switch, Toggle, Tab and AccordionTrigger: enabled, focused, last input from
+  the keyboard and an active window. Tab and AccordionTrigger take the handle
+  passed to `track_focus`. Those controls also gain
+  `child_with_resolved_style` (state plus the final resolved style), and
+  `Radio::focus_indicator(handle)` reports a group's keyboard focus on its
+  current option without tracking the handle twice. `DatePicker`,
+  `ColorPicker` and `InputBase` also gain `child_with_resolved_style`.
+- `Theme::sidebar_material(window_active)`: the deterministic sidebar
+  material for sidebars over opaque content, where real glass cannot show.
+- `scripts/compare-swiftui.py` measures several named regions per page from
+  one capture. `regions.json` gains `regions` with a `sidebar` region
+  (x 0–220 pt below the toolbar), reported for every page next to `content`;
+  baseline deltas and the report include it. `metrics.content` keeps its
+  shape.
+
+### Changed
+
+- Keyboard focus draws one ring: 3 pt wide and outset 3 pt (both scale with
+  zoom) from the border box, with the control's top-left corner radius plus
+  3, in `focus_ring` for controls and fields alike. Buttons, toggles, tabs,
+  pickers, disclosure triggers and fields read their final resolved base
+  radius and top border width (instance and semantic styles; hover, active
+  and focus refinements are not considered), so caller overrides are
+  followed; the ring is uniform,
+  so asymmetric borders or corners get the top-left values. Indicator,
+  switch, slider and segment rings use the library's own geometry. It shows
+  only for keyboard focus in an active window on an enabled control (fields,
+  including one-time-code cells: while focused in an active window and
+  enabled, also after a click), and the control's border and fill no longer
+  change while focused. The ring surrounds the whole button, pop-up, toggle,
+  date and color picker, disclosure trigger and field; the checkbox box
+  (22 × 22); the focused radio's circle; the switch track (60 × 30); the
+  focused segment; and the slider knob. `focus_shadow`, Base `ring` and Kit
+  `ring` use the same color (was accent @0.35 / @0.4 with an accent border).
+  Exceptions drawn with `focus_shadow` (same color and width, but GPUI keeps
+  the control's own corner radius instead of radius plus 3): links,
+  calendar days, dock tabs and the current one-time-code cell.
+- Hover follows one rule: bordered, prominent and borderless buttons, toggles,
+  tabs, segments, checkboxes, fields, number-input steppers, calendar days,
+  disclosure rows, sidebar, tree and table rows, and dock tabs no longer
+  change under the pointer. Links keep the pointer cursor but no longer
+  underline on hover; the slider knob no longer grows on hover (it still
+  grows while dragged). Kit button hover colors (primary, secondary, danger,
+  success, warning, info, link) equal rest. Kit list items, table rows and
+  diff gutters keep their resting background (selection, stripes) under the
+  pointer through a local Kit patch that treats the transparent
+  `list_hover` / `table_hover` token as no hover; other raw Kit components
+  keep their own hover styles.
+- Toolbar buttons are toolbar items: a hover disc of ink @0.05 (light) /
+  @0.04 (dark) and the focus ring. Pressed is twice the hover ink
+  (@0.10 / @0.08), a library choice: the spec has no measurement for it.
+- Sidebar rows (`sidebar_item`) use native selection: opaque accent with a
+  white label and symbol while emphasized in a key window; black @0.085 /
+  white @0.088 over the material with the label color while unemphasized;
+  opaque #E5E5E5 / #363636 with the label color in an inactive window
+  (Reduce Transparency: #DFDFDF / #545454 and #E1E1E1 / #232323). Symbols
+  no longer fade in an inactive window. `native::sidebar_inactive_selection`
+  returns the new inactive value. Extra children added to a sidebar row
+  follow its symbol and label.
+- Where real glass is unavailable (older systems, headless windows, Reduce
+  Transparency), `sidebar()` paints `Theme::sidebar_material` instead of the
+  generic glass fallback: #E7E7E7 @0.898 / #2C2C2C @0.816 in an active
+  window, opaque #F0F0F0 / #282828 in an inactive one, and #F6F6F6 / #383838
+  (active), #ECECEC / #141414 (inactive) under Reduce Transparency. Real
+  glass is left to AppKit, including its inactive appearance. The fallback
+  layer keeps square corners; a rounded sidebar does not clip it.
+- Tree selection uses `row_selection`: emphasized while the window is
+  active (#0064E1 / #0059D1, white text), otherwise #DCDCDC / #464646.
+- Table rows alternate with `alternating_row` (was foreground @0.04).
+- Menu, select and combobox popup rows take their highlight from the menu
+  item role; the colors are unchanged until M5.
+- Avatars and solid chart cross lines use `tertiary_fill` instead of the
+  hover fill.
+- Gallery: the component sidebar is emphasized while it holds keyboard
+  focus; the sidebar demo paints `sidebar_material` because it sits on opaque
+  page content; the sidebar and list pages show unemphasized native selection; the
+  radio page rings the keyboard-focused option's circle instead of tinting
+  the row; the sidebar group headers have no hover.
+
 ## Unreleased — M3 control and row metrics (regular size)
 
 ### Added

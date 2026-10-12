@@ -79,24 +79,18 @@ pub fn sidebar_metrics() -> SidebarMetrics {
     SidebarMetrics::default()
 }
 
-/// The selected-row tint in an inactive source list. Ordinary AppKit source
-/// lists use vibrant material paint, not the opaque generic selection color.
-/// Accessibility modes use the system's opaque semantic selection instead.
+/// The selected sidebar row in an inactive window: opaque #E5E5E5 / #363636
+/// on the opaque #F0F0F0 / #282828 material (spec §6.4, C20). Under Reduce
+/// Transparency it is #E1E1E1 / #232323. [`crate::sidebar_item`] paints it
+/// itself; this is the same value for custom sidebar rows.
 pub fn sidebar_inactive_selection(cx: &App) -> Hsla {
-    let theme = cx.macos();
-    let dark = theme.is_dark();
-    if !theme.reduce_transparency && !theme.increased_contrast {
-        // Measured NSOutlineView.sourceList: #F9F9F9 over #FFFFFF in Aqua;
-        // #191B1D over #1F2022 in Dark Aqua. A tint preserves native glass.
-        return gpui_kit::rgb(0)
-            .opacity(if dark { 0.18 } else { 6. / 255. })
-            .into();
-    }
-    #[cfg(target_os = "macos")]
-    if let Some(color) = macos::sidebar_inactive_selection(dark) {
-        return color;
-    }
-    gpui_kit::rgb(if dark { 0x464646 } else { 0xdcdcdc }).into()
+    use crate::state::{PaintRole, Part, RowKind, States, paint};
+    let row = PaintRole::Row {
+        kind: RowKind::Sidebar,
+        selected: true,
+        emphasized: false,
+    };
+    paint(row, Part::Fill, States::inactive(), cx.macos())
 }
 
 pub(crate) fn refresh_sidebar_metrics() {
@@ -120,6 +114,7 @@ pub struct NativeGlass {
     base: Stateful<Div>,
     clear: bool,
     tint: Option<Hsla>,
+    sidebar: bool,
 }
 
 /// Start a real system glass surface where supported, with a themed fallback.
@@ -138,6 +133,7 @@ pub fn native_glass(id: impl Into<ElementId>, cx: &App) -> NativeGlass {
         id,
         clear: false,
         tint: None,
+        sidebar: false,
     }
 }
 
@@ -153,6 +149,15 @@ impl NativeGlass {
     /// Use AppKit's clear glass style instead of its regular style.
     pub fn clear(mut self, clear: bool) -> Self {
         self.clear = clear;
+        self
+    }
+
+    /// Without real glass (older systems, headless, Reduce Transparency),
+    /// paint [`crate::Theme::sidebar_material`]: the measured tint while the
+    /// window is active, opaque #F0F0F0 / #282828 while it is inactive. Real
+    /// glass is left to AppKit.
+    pub(crate) fn sidebar_material(mut self) -> Self {
+        self.sidebar = true;
         self
     }
 
@@ -223,8 +228,13 @@ impl RenderOnce for NativeGlass {
                 );
             }
         }
-        let _ = window;
-        self.base = self.base.bg(cx.macos().glass_fill());
+        let fallback = if self.sidebar {
+            let active = crate::state::States::in_window(window).window_active;
+            cx.macos().sidebar_material(active)
+        } else {
+            cx.macos().glass_fill()
+        };
+        self.base = self.base.bg(fallback);
         self.base
     }
 }

@@ -1,3 +1,7 @@
+// Modified by gpui-macos contributors in 2026: render-time control state children and keyboard focus visibility on AccordionTrigger.
+// Original: longbridge/gpui-kit 0bbd9870ce420af9feacbf948b21d3824d82dc0b.
+// Copyright 2024-2026 Longbridge; Apache-2.0. See LICENSE-APACHE and MACOS-PATCH.md.
+
 use crate::TestSupportExt as _;
 use std::rc::Rc;
 
@@ -278,10 +282,11 @@ impl RenderOnce for AccordionPanel {
 pub struct AccordionTrigger {
     base: crate::ObservedElement<gpui::Stateful<Div>>,
     style: StyleRefinement,
-    children: SmallVec<[AnyElement; 2]>,
+    children: SmallVec<[crate::state_child::StateChild; 2]>,
     open: bool,
     disabled: bool,
     on_change: Option<ChangeHandler>,
+    tracked_focus: Option<gpui::FocusHandle>,
 }
 
 impl AccordionTrigger {
@@ -293,7 +298,30 @@ impl AccordionTrigger {
             open: false,
             disabled: false,
             on_change: None,
+            tracked_focus: None,
         }
+    }
+
+    /// Adds a child built with the final render-time control state: `checked`
+    /// is the expanded state, and `focus_visible` follows a handle passed to
+    /// `track_focus`.
+    pub fn child_with_state<E: IntoElement>(
+        mut self,
+        build: impl FnOnce(crate::ControlState) -> E + 'static,
+    ) -> Self {
+        self.children
+            .push(crate::state_child::StateChild::state(build));
+        self
+    }
+
+    /// Like `child_with_state`, also receiving the trigger's final style.
+    pub fn child_with_resolved_style<E: IntoElement>(
+        mut self,
+        build: impl FnOnce(crate::ControlState, &StyleRefinement) -> E + 'static,
+    ) -> Self {
+        self.children
+            .push(crate::state_child::StateChild::styled(build));
+        self
     }
 
     pub fn open(mut self, open: bool) -> Self {
@@ -324,7 +352,11 @@ impl Styled for AccordionTrigger {
 
 impl ParentElement for AccordionTrigger {
     fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
-        self.children.extend(elements);
+        self.children.extend(
+            elements
+                .into_iter()
+                .map(crate::state_child::StateChild::Ready),
+        );
     }
 }
 
@@ -334,6 +366,7 @@ impl InteractiveElement for AccordionTrigger {
     }
 
     fn track_focus(mut self, handle: &gpui::FocusHandle) -> Self {
+        self.tracked_focus = Some(handle.clone());
         self.base = self.base.track_focus(handle);
         self
     }
@@ -342,8 +375,11 @@ impl InteractiveElement for AccordionTrigger {
 impl StatefulInteractiveElement for AccordionTrigger {}
 
 impl RenderOnce for AccordionTrigger {
-    fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, _: &mut App) -> impl IntoElement {
         let next_open = !self.open;
+        let control_state = crate::ControlState::new(self.disabled, self.open)
+            .with_focus(self.tracked_focus.as_ref(), window);
+        let style = self.style;
 
         self.base
             .role(Role::Button)
@@ -354,8 +390,12 @@ impl RenderOnce for AccordionTrigger {
                     this.on_click(move |event, window, cx| on_change(next_open, event, window, cx))
                 },
             )
-            .children(self.children)
-            .refine_style(&self.style)
+            .children(
+                self.children
+                    .into_iter()
+                    .map(|child| child.resolve(control_state, &style)),
+            )
+            .refine_style(&style)
     }
 }
 

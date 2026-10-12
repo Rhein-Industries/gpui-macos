@@ -5,10 +5,7 @@ use gpui_kit::base::{
     Accordion, AccordionPanel, AccordionTrigger, Pagination, PaginationItem, PaginationState,
 };
 use gpui_kit::rems;
-use gpui_kit::{
-    App, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement, SharedString,
-    Styled, div,
-};
+use gpui_kit::{App, ElementId, FontWeight, IntoElement, ParentElement, SharedString, Styled, div};
 
 pub fn accordion(id: impl Into<ElementId>, cx: &App) -> Accordion {
     Accordion::new(id)
@@ -39,8 +36,13 @@ pub fn accordion_trigger(
         .font_family(t.font.clone())
         .native_text_style(crate::TextStyle::Body, cx.macos())
         .font_weight(FontWeight::MEDIUM)
-        .hover(|s| s.bg(t.hover_fill()))
-        .focus_visible(|s| s.border_color(t.accent))
+        // No hover (spec §6.5, C17). Keyboard focus on a handle passed to
+        // `track_focus` rings the trigger in an active window, following its
+        // final radius and border (§6.3).
+        .relative()
+        .child_with_resolved_style(|state, style| {
+            crate::controls::ControlFocusRing(state.focus_visible, style.clone())
+        })
         .child(label.into())
         .child(crate::icon(if open {
             crate::IconName::ChevronDown

@@ -6,8 +6,11 @@
 """Capture PID-owned macOS gallery windows and compare against SwiftUI.
 
 uv run scripts/compare-swiftui.py --skip-build
-Region overrides: --regions path.json, with {default: {x,y,right,bottom},
-pages: {slug: {x,y,...}}} in window points. No image resizing or registration.
+Regions: --regions path.json, in window points. `default` {x,y,right,bottom}
+is the `content` region; `regions` {name: {x,y,right|width,bottom|height}} adds
+named regions measured from the same capture (for example `sidebar`); `pages`
+{slug: {x,y,..., regions: {name: {...}}}} overrides either per page.
+No image resizing or registration.
 Threshold is the pixelmatch YIQ tolerance (0..1); antialias pixels are included.
 Category 3 pairs have diagnostics but are excluded from rankings.
 """
@@ -355,7 +358,44 @@ def metrics(a, b, delta, threshold):
     return {'size_pixels': [width, height], 'pixel_count': width*height, 'mismatched_pixels': count, 'mismatch_percent': count / (width*height) * 100, 'ssim': ssim}
 
 
-def compare(folder, captures, region, threshold):
+REGION_KEYS = {'x', 'y', 'right', 'bottom', 'width', 'height'}
+
+
+def page_regions(config, page):
+    """Named regions for one page: `content` (default plus page keys, as before)
+    and every configured named region, each merged with its page override."""
+    page_config = config.get('pages', {}).get(page, {})
+    page_named = page_config.get('regions', {})
+    regions = {'content': {**config['default'], **{k: v for k, v in page_config.items() if k != 'regions'}}}
+    for name in [*config.get('regions', {}), *page_named]:
+        if name != 'content':
+            regions[name] = {**config.get('regions', {}).get(name, {}), **page_named.get(name, {})}
+    for name, region in regions.items():
+        if not {'x', 'y'} <= region.keys() or region.keys() - REGION_KEYS:
+            raise RuntimeError(f'Region {name!r} needs x and y and only {sorted(REGION_KEYS)}')
+        if any(not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0 for value in region.values()):
+            raise RuntimeError('Region values must be finite nonnegative point offsets')
+    return regions
+
+
+def region_box(region, captures, width, height):
+    """Pixel box [x, y, right, bottom] common to both captures. `width` /
+    `height` give an extent from x / y; otherwise `right` / `bottom` are insets."""
+    boxes = []
+    for capture_info in captures.values():
+        sx, sy = capture_info['capture_scale']
+        pw, ph = capture_info['size_pixels']
+        right = math.ceil((region['x'] + region['width'])*sx) if 'width' in region else pw-math.ceil(region.get('right', 0)*sx)
+        bottom = math.ceil((region['y'] + region['height'])*sy) if 'height' in region else ph-math.ceil(region.get('bottom', 0)*sy)
+        boxes.append([math.ceil(region['x']*sx), math.ceil(region['y']*sy), right, bottom])
+    return [max(box[0] for box in boxes), max(box[1] for box in boxes), min(width, *(box[2] for box in boxes)), min(height, *(box[3] for box in boxes))]
+
+
+def compare(folder, captures, regions, threshold):
+    """Full-window and per-region metrics. `regions` maps names to point
+    regions; a single region (with `x`) is the `content` region."""
+    if 'x' in regions:
+        regions = {'content': regions}
     validate_pair(captures)
     with Image.open(folder / 'gpui.png') as ga, Image.open(folder / 'swiftui.png') as sw:
         a, b = rgb(ga), rgb(sw)
@@ -364,16 +404,17 @@ def compare(folder, captures, region, threshold):
     height, width = a.shape[:2]
     delta = color_delta(a, b)
     # Region offsets are points; convert to capture pixels (2x on Retina).
-    boxes = []
-    for capture_info in captures.values():
-        sx, sy = capture_info['capture_scale']
-        pw, ph = capture_info['size_pixels']
-        boxes.append([math.ceil(region['x']*sx), math.ceil(region['y']*sy), pw-math.ceil(region.get('right', 0)*sx), ph-math.ceil(region.get('bottom', 0)*sy)])
-    x, y, right, bottom = max(box[0] for box in boxes), max(box[1] for box in boxes), min(width, *(box[2] for box in boxes)), min(height, *(box[3] for box in boxes))
-    if right <= x or bottom <= y:
-        raise RuntimeError(f'Content region is empty on common canvas: {[x,y,right,bottom]}')
+    named = {}
+    for name, region in regions.items():
+        x, y, right, bottom = region_box(region, captures, width, height)
+        if right <= x or bottom <= y:
+            if name == 'content':
+                raise RuntimeError(f'Content region is empty on common canvas: {[x,y,right,bottom]}')
+            named[name] = {'error': f'Region is empty on common canvas: {[x,y,right,bottom]}', 'region_points': region}
+            continue
+        named[name] = {**metrics(a[y:bottom, x:right], b[y:bottom, x:right], delta[y:bottom, x:right], threshold), 'box_pixels': [x,y,right,bottom], 'region_points': region}
     full = metrics(a, b, delta, threshold)
-    content = metrics(a[y:bottom, x:right], b[y:bottom, x:right], delta[y:bottom, x:right], threshold)
+    content = {k: v for k, v in named['content'].items() if k != 'region_points'}
     strength = np.clip(np.sqrt(delta / 35215), 0, 1)
     heat = np.zeros_like(a)
     heat[..., 0] = np.where(delta > 35215*threshold**2, 255, 0)
@@ -381,7 +422,8 @@ def compare(folder, captures, region, threshold):
     Image.fromarray(heat).save(folder / 'heatmap.png')
     Image.blend(Image.fromarray(a), Image.fromarray(b), .5).save(folder / 'overlay.png')
     Image.fromarray(np.concatenate([a, b], axis=1)).save(folder / 'side-by-side.png')
-    return {'sizes_differ': captures['gpui']['size_pixels'] != captures['swiftui']['size_pixels'], 'scales_differ': captures['gpui']['capture_scale'] != captures['swiftui']['capture_scale'], 'comparison_canvas': 'identical size and scale, no resizing', 'full': full, 'content': {**content, 'box_pixels': [x,y,right,bottom]}, 'region_points': region}
+    # `content` and `region_points` keep their pre-region shape for baselines.
+    return {'sizes_differ': captures['gpui']['size_pixels'] != captures['swiftui']['size_pixels'], 'scales_differ': captures['gpui']['capture_scale'] != captures['swiftui']['capture_scale'], 'comparison_canvas': 'identical size and scale, no resizing', 'full': full, 'content': content, 'region_points': regions['content'], 'regions': named}
 
 
 def validate_output(out, overwrite=False):
@@ -389,20 +431,35 @@ def validate_output(out, overwrite=False):
         raise RuntimeError(f'Output directory is non-empty or not a directory: {out}; use --overwrite to reuse a non-empty directory')
 
 
+def metric_delta(current, prior):
+    if not current or not prior or 'mismatch_percent' not in current or 'mismatch_percent' not in prior:
+        return None
+    return {
+        'mismatch_percent_points': current['mismatch_percent'] - prior['mismatch_percent'],
+        'ssim': None if current['ssim'] is None or prior['ssim'] is None else current['ssim'] - prior['ssim'],
+    }
+
+
 def baseline_deltas(results, baseline):
     previous = {(p['page'], p['appearance']): p for p in baseline['pairs']}
     for pair in results['pairs']:
         old = previous.get((pair['page'], pair['appearance']))
-        current = pair.get('metrics', {}).get('content')
-        prior = (old or {}).get('metrics', {}).get('content')
-        if current is None or prior is None:
+        delta = metric_delta(pair.get('metrics', {}).get('content'), (old or {}).get('metrics', {}).get('content'))
+        if delta is None:
             pair['baseline_delta'] = {'status': 'unavailable'}
             continue
         pair['baseline_delta'] = {
             'status': 'compared',
-            'content_mismatch_percent_points': current['mismatch_percent'] - prior['mismatch_percent'],
-            'content_ssim': None if current['ssim'] is None or prior['ssim'] is None else current['ssim'] - prior['ssim'],
+            'content_mismatch_percent_points': delta['mismatch_percent_points'],
+            'content_ssim': delta['ssim'],
         }
+        # Named regions other than content, when both runs measured them.
+        current_regions = pair.get('metrics', {}).get('regions', {})
+        prior_regions = (old or {}).get('metrics', {}).get('regions', {})
+        regions = {name: region for name in current_regions if name != 'content'
+                   for region in [metric_delta(current_regions[name], prior_regions.get(name))] if region is not None}
+        if regions:
+            pair['baseline_delta']['regions'] = regions
 
 
 def print_baseline_deltas(results):
@@ -414,6 +471,9 @@ def print_baseline_deltas(results):
         else:
             ssim = 'unavailable' if delta['content_ssim'] is None else f"{delta['content_ssim']:+.5f}"
             print(prefix + f"content mismatch {delta['content_mismatch_percent_points']:+.3f} percentage points; SSIM {ssim}", flush=True)
+            for name, region in delta.get('regions', {}).items():
+                ssim = 'unavailable' if region['ssim'] is None else f"{region['ssim']:+.5f}"
+                print(prefix + f"{name} mismatch {region['mismatch_percent_points']:+.3f} percentage points; SSIM {ssim}", flush=True)
 
 
 def write_report(out, results):
@@ -426,7 +486,7 @@ def write_report(out, results):
 <label>SwiftUI overlay opacity <input id="opacity" type="range" min="0" max="100" value="50" oninput="document.querySelectorAll('.over').forEach(e=>e.style.opacity=this.value/100)"> </label>
 <main id="report"></main><details><summary>Manifest</summary><pre id="manifest"></pre></details>
 <script>const data=__DATA__;const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const pct=n=>n.toFixed(3)+'%';function render(appearance){let output='';for(const category of [1,2,3]){let rows=data.pairs.filter(p=>p.appearance===appearance&&p.category===category);if(!rows.length)continue;rows.sort((a,b)=>category===3?a.page.localeCompare(b.page):(b.metrics?.content.mismatch_percent??-1)-(a.metrics?.content.mismatch_percent??-1));output+='<h2>Category '+category+'</h2>';for(const p of rows){const base=encodeURIComponent(p.page)+'/'+appearance+'/';output+='<article><h3>'+esc(p.name)+' · '+esc(p.page)+' · '+esc(p.group)+'</h3>';const m=p.metrics;if(p.metrics){output+='<p>Content mismatch '+pct(m.content.mismatch_percent)+' · SSIM '+m.content.ssim?.toFixed(5)+' | Full mismatch '+pct(m.full.mismatch_percent)+' · SSIM '+m.full.ssim?.toFixed(5)+'</p>';}if(p.baseline_delta){const d=p.baseline_delta;output+='<p>Baseline delta: '+(d.status==='compared'?'content mismatch '+d.content_mismatch_percent_points.toFixed(3)+' percentage points · SSIM '+(d.content_ssim?.toFixed(5)??'unavailable'):'unavailable (missing content metrics)')+'</p>';}if(p.error)output+='<p>'+esc(p.error)+'</p>';for(const app of Object.keys(p.captures).filter(a=>p.captures[a].size_pixels))output+='<a href="'+base+app+'.png">'+app+'</a>';if(p.metrics){output+='<a href="'+base+'heatmap.png">Heatmap</a><a href="'+base+'side-by-side.png">Side by side</a><a href="'+base+'overlay.png">50% overlay</a><div class="stack" style="width:'+m.full.size_pixels[0]+'px;aspect-ratio:'+m.full.size_pixels[0]+'/'+m.full.size_pixels[1]+'"><img style="width:'+(p.captures.gpui.size_pixels[0]/m.full.size_pixels[0]*100)+'%" src="'+base+'gpui.png"><img class="over" style="width:'+(p.captures.swiftui.size_pixels[0]/m.full.size_pixels[0]*100)+'%;opacity:'+document.getElementById('opacity').value/100+'" src="'+base+'swiftui.png"></div>';}else{for(const app of Object.keys(p.captures).filter(a=>p.captures[a].size_pixels))output+='<div><img src="'+base+app+'.png"></div>';}output+='</article>';}}document.getElementById('report').innerHTML=output;}document.getElementById('manifest').textContent=JSON.stringify(data.manifest,null,2);render(data.appearances[0]);</script></html>'''
+const pct=n=>n.toFixed(3)+'%';function render(appearance){let output='';for(const category of [1,2,3]){let rows=data.pairs.filter(p=>p.appearance===appearance&&p.category===category);if(!rows.length)continue;rows.sort((a,b)=>category===3?a.page.localeCompare(b.page):(b.metrics?.content.mismatch_percent??-1)-(a.metrics?.content.mismatch_percent??-1));output+='<h2>Category '+category+'</h2>';for(const p of rows){const base=encodeURIComponent(p.page)+'/'+appearance+'/';output+='<article><h3>'+esc(p.name)+' · '+esc(p.page)+' · '+esc(p.group)+'</h3>';const m=p.metrics;if(p.metrics){output+='<p>Content mismatch '+pct(m.content.mismatch_percent)+' · SSIM '+m.content.ssim?.toFixed(5)+' | Full mismatch '+pct(m.full.mismatch_percent)+' · SSIM '+m.full.ssim?.toFixed(5)+'</p>';for(const [name,r] of Object.entries(m.regions||{})){if(name!=='content')output+='<p>Region '+esc(name)+': '+(r.mismatch_percent===undefined?esc(r.error||'unavailable'):'mismatch '+pct(r.mismatch_percent)+' · SSIM '+r.ssim?.toFixed(5))+'</p>';}}if(p.baseline_delta){const d=p.baseline_delta;output+='<p>Baseline delta: '+(d.status==='compared'?'content mismatch '+d.content_mismatch_percent_points.toFixed(3)+' percentage points · SSIM '+(d.content_ssim?.toFixed(5)??'unavailable'):'unavailable (missing content metrics)')+'</p>';for(const [name,r] of Object.entries(d.regions||{}))output+='<p>Baseline delta '+esc(name)+': mismatch '+r.mismatch_percent_points.toFixed(3)+' percentage points · SSIM '+(r.ssim?.toFixed(5)??'unavailable')+'</p>';}if(p.error)output+='<p>'+esc(p.error)+'</p>';for(const app of Object.keys(p.captures).filter(a=>p.captures[a].size_pixels))output+='<a href="'+base+app+'.png">'+app+'</a>';if(p.metrics){output+='<a href="'+base+'heatmap.png">Heatmap</a><a href="'+base+'side-by-side.png">Side by side</a><a href="'+base+'overlay.png">50% overlay</a><div class="stack" style="width:'+m.full.size_pixels[0]+'px;aspect-ratio:'+m.full.size_pixels[0]+'/'+m.full.size_pixels[1]+'"><img style="width:'+(p.captures.gpui.size_pixels[0]/m.full.size_pixels[0]*100)+'%" src="'+base+'gpui.png"><img class="over" style="width:'+(p.captures.swiftui.size_pixels[0]/m.full.size_pixels[0]*100)+'%;opacity:'+document.getElementById('opacity').value/100+'" src="'+base+'swiftui.png"></div>';}else{for(const app of Object.keys(p.captures).filter(a=>p.captures[a].size_pixels))output+='<div><img src="'+base+app+'.png"></div>';}output+='</article>';}}document.getElementById('report').innerHTML=output;}document.getElementById('manifest').textContent=JSON.stringify(data.manifest,null,2);render(data.appearances[0]);</script></html>'''
     # Interactive overlays use the verified identical pixel canvas.
     (out / 'index.html').write_text(template.replace('__DATA__', data))
 
@@ -472,12 +532,7 @@ def main():
     if unknown:
         raise RuntimeError('Unknown inventory pages: ' + ', '.join(sorted(unknown)))
     config = json.loads(args.regions.read_text())
-    regions = {}
-    for page in pages:
-        region = {**config['default'], **config.get('pages', {}).get(page, {})}
-        if any(not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0 for value in region.values()):
-            raise RuntimeError('Region values must be finite nonnegative point offsets')
-        regions[page] = region
+    regions = {page: page_regions(config, page) for page in pages}
     manifest = preflight(args.display, args.bounds_only)
     apps = ['swiftui'] if args.swiftui_only else ['gpui'] if args.gallery_only else ['gpui', 'swiftui']
     if not args.skip_build:
@@ -512,6 +567,9 @@ def main():
                     if len(apps) == 2 and not args.bounds_only:
                         pair['metrics'] = compare(folder, pair['captures'], regions[page], args.threshold)
                         print(f"  content mismatch {pair['metrics']['content']['mismatch_percent']:.3f}%", flush=True)
+                        for name, region in pair['metrics'].get('regions', {}).items():
+                            if name != 'content' and 'mismatch_percent' in region:
+                                print(f"  {name} mismatch {region['mismatch_percent']:.3f}%", flush=True)
                 except (RuntimeError, subprocess.SubprocessError, OSError) as error:
                     pair['error'] = str(error)
                     failures += 1

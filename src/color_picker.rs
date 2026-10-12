@@ -64,8 +64,13 @@ pub fn color_picker(
     ColorPicker::new(id)
         .open(open)
         .track_focus(&focus)
+        .relative()
         .rounded(rems(0.375))
-        .focus_visible(|s| s.shadow(t.focus_shadow()))
+        // Spec §6.3: keyboard focus in an active window rings the whole
+        // enabled control, following its final radius and border.
+        .child_with_resolved_style(|state, style| {
+            crate::controls::ControlFocusRing(state.focus_visible, style.clone())
+        })
         .accessibility_label("Choose color")
         .on_open_change(move |open, window, cx| {
             target.update(cx, |state, cx| {

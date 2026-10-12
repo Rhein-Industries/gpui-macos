@@ -1,3 +1,7 @@
+// Modified by gpui-macos contributors in 2026: a fully transparent hover token keeps the resting background.
+// Original: longbridge/gpui-kit 0bbd9870ce420af9feacbf948b21d3824d82dc0b.
+// Copyright 2024-2026 Longbridge; Apache-2.0. See LICENSE-APACHE and MACOS-PATCH.md.
+
 //! Readonly, virtualized patch display inspired by Diffs from Pierre.
 //! Parse an externally supplied patch into [`DiffFile`]s, retain one
 //! [`DiffState`] for all of them in the owner, and build [`Diff`] during rendering.
@@ -1279,7 +1283,10 @@ fn render_gutter(
         .w(code.gutter_width)
         .pr_1()
         .when(hover, |this| {
-            this.hover(|this| this.bg(cx.theme().list_hover))
+            // A fully transparent hover token keeps the resting background.
+            this.when(cx.theme().list_hover.a > 0., |this| {
+                this.hover(|this| this.bg(cx.theme().list_hover))
+            })
         })
         .when_some(ix, |this, ix| {
             let position = code.position(file, side, ix);
@@ -1683,7 +1690,10 @@ fn code_line(
         })
         .when(selected, |this| this.bg(cx.theme().selection))
         .when(hover_line && !selected, |this| {
-            this.hover(|this| this.bg(cx.theme().list_hover))
+            // A fully transparent hover token keeps the resting background.
+            this.when(cx.theme().list_hover.a > 0., |this| {
+                this.hover(|this| this.bg(cx.theme().list_hover))
+            })
         })
         .when_some(code.on_line_hover.clone(), |this, handler| {
             let position = position.clone();

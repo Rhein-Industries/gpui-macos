@@ -1,4 +1,4 @@
-use crate::{ActiveTheme, ButtonVariant, IconName, button, calendar, icon};
+use crate::{ButtonVariant, IconName, button, calendar, icon};
 use gpui_kit::base::{CalendarEvent, CalendarState, DatePicker, Popup};
 use gpui_kit::rems;
 use gpui_kit::{
@@ -157,8 +157,13 @@ pub fn date_picker(
         .open(open)
         .w(rems(15.5))
         .key_context("macOSDatePicker")
+        .relative()
         .rounded(rems(0.375))
-        .focus_visible(|s| s.shadow(cx.macos().focus_shadow()))
+        // Spec §6.3: keyboard focus in an active window rings the whole
+        // enabled control, following its final radius and border.
+        .child_with_resolved_style(|state, style| {
+            crate::controls::ControlFocusRing(state.focus_visible, style.clone())
+        })
         .on_open_change(move |open, window, cx| {
             target.update(cx, |state, cx| state.set_open(open, window, cx))
         })
@@ -177,10 +182,56 @@ mod tests {
     }
     impl Render for Harness {
         fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-            crate::focus_scope("date-picker-test")
-                .size_full()
-                .child(date_picker("date", &self.state, cx).disabled(self.disabled))
+            crate::focus_scope("date-picker-test").size_full().child(
+                date_picker("date", &self.state, cx)
+                    .disabled(self.disabled)
+                    // A caller override after construction.
+                    .rounded(px(10.))
+                    .debug_selector(|| "date-picker".into()),
+            )
         }
+    }
+
+    /// Spec §6.3: the ring follows the final radius and the final disabled
+    /// value, and needs keyboard focus in an active window.
+    #[gpui_kit::test]
+    fn picker_ring_follows_final_radius_and_disabled(cx: &mut TestAppContext) {
+        use crate::ActiveTheme as _;
+        cx.update(crate::init);
+        let (view, cx) = cx.add_window_view(|window, cx| Harness {
+            state: cx.new(|cx| DatePickerState::new(window, cx)),
+            disabled: false,
+        });
+        cx.update(|window, _| window.activate_window());
+        cx.run_until_parked();
+        let rings = |cx: &mut gpui_kit::VisualTestContext| {
+            view.update(cx, |_, cx| cx.notify());
+            cx.update(|window, cx| {
+                window.draw(cx).clear(cx);
+                let rings = crate::state::painted_rings(window, cx.macos());
+                (rings, window.scale_factor())
+            })
+        };
+        let focus = view.read_with(cx, |view, cx| view.state.read(cx).focus.clone());
+        cx.update(|window, cx| window.focus(&focus, cx));
+        cx.simulate_keystrokes("x");
+        let (painted, scale) = rings(cx);
+        assert_eq!(painted.len(), 1);
+        let picker = cx.debug_bounds("date-picker").unwrap();
+        assert_eq!(painted[0].bounds, picker.dilate(px(3.)).scale(scale));
+        assert_eq!(
+            painted[0].corner_radii.top_left.0,
+            13. * scale,
+            "caller radius + 3"
+        );
+        cx.deactivate_window();
+        assert!(rings(cx).0.is_empty(), "inactive window");
+        cx.update(|window, _| window.activate_window());
+        cx.run_until_parked();
+        cx.update(|window, cx| window.focus(&focus, cx));
+        cx.simulate_keystrokes("x");
+        view.update(cx, |this, _| this.disabled = true);
+        assert!(rings(cx).0.is_empty(), "disabled pickers show no ring");
     }
 
     #[gpui_kit::test]

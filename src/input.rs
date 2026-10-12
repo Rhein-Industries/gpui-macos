@@ -80,10 +80,19 @@ impl RenderOnce for Input {
     }
 }
 
+/// A field frame. While the field is focused in an active window it shows the
+/// focus ring with an unchanged border (spec §6.3); fields take focus from
+/// the pointer too, so the ring does not wait for keyboard input.
 fn frame(id: impl Into<ElementId>, focused: bool, cx: &App) -> InputBase {
     let t = cx.macos();
     InputBase::new(id)
         .focused(focused)
+        .relative()
+        // Spec §6.3: the ring follows the final shape (a capsule search field
+        // gets a capsule ring) and the final focused and disabled values.
+        .child_with_resolved_style(|state, style| {
+            crate::controls::ControlFocusRing(state.focus_visible, style.clone())
+        })
         .w_full()
         .min_w_0()
         .px(rems(0.375))
@@ -95,7 +104,6 @@ fn frame(id: impl Into<ElementId>, focused: bool, cx: &App) -> InputBase {
         .text_color(t.foreground)
         .font_family(t.font.clone())
         .native_text_style(crate::TextStyle::Body, cx.macos())
-        .styles(|s| s.focused(|s| s.border_color(t.accent).shadow(t.focus_shadow())))
 }
 
 pub fn input(
@@ -113,7 +121,9 @@ pub fn input(
     });
     let masked = state.read(cx).presentation().is_masked();
     let native_mask_text = masked && !state.read(cx).value().is_empty();
-    let focused = window.is_window_active() && state.read(cx).focus_handle(cx).is_focused(window);
+    // Fields: focused in an active window and enabled (spec §6.3).
+    let focused = !state.read(cx).presentation().is_disabled()
+        && crate::state::field_focused(&state.read(cx).focus_handle(cx), window);
     let target = state.clone();
     let base = frame(id, focused, cx)
         .when(masked, |frame| frame.role(gpui_kit::Role::PasswordInput))
@@ -143,7 +153,9 @@ pub fn textarea(
 ) -> InputBase {
     let style = cx.macos().input_style();
     state.update(cx, |state, _| state.set_editor_style(style));
-    let focused = window.is_window_active() && state.read(cx).focus_handle(cx).is_focused(window);
+    // Fields: focused in an active window and enabled (spec §6.3).
+    let focused = !state.read(cx).presentation().is_disabled()
+        && crate::state::field_focused(&state.read(cx).focus_handle(cx), window);
     let target = state.clone();
     frame(id, focused, cx)
         .min_h(rems(6.))
@@ -191,7 +203,6 @@ pub fn number_input(state: &Entity<InputState>, cx: &mut App) -> gpui_kit::base:
                 .bg(minus.control_fill())
                 .border_l_1()
                 .border_color(minus.divider())
-                .hover(|s| s.bg(minus.hover_fill()))
                 .child(crate::icon(crate::IconName::ChevronDown).size(rems(0.75)))
         })
         .increment_button(move |button| {
@@ -202,7 +213,6 @@ pub fn number_input(state: &Entity<InputState>, cx: &mut App) -> gpui_kit::base:
                 .border_l_1()
                 .border_b_1()
                 .border_color(t.divider())
-                .hover(|s| s.bg(t.hover_fill()))
                 .child(crate::icon(crate::IconName::ChevronUp).size(rems(0.75)))
         })
 }

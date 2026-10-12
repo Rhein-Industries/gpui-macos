@@ -2084,6 +2084,10 @@ pub fn bubble_content(
 /// A selectable list row with Kit's full `ListItem` API. Kit sizes its rows
 /// with GPUI's 16 pt `text_base`; this row uses Body text, so with Kit's 4 pt
 /// vertical padding it is the native 24 pt list row (spec §3.1, §5.2, C16).
+/// For native selection (spec §6.4), paint the selected row with
+/// [`crate::row_selection`] and mark it with `aria_selected` instead of Kit's
+/// `selected`, which paints over the caller with Kit's list color. Rows have
+/// no hover.
 pub fn list_item(id: impl Into<ElementId>, cx: &App) -> kit::list::ListItem {
     kit::list::ListItem::new(id)
         .min_h(crate::tokens::pt(crate::tokens::ROW_HEIGHT))

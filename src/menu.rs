@@ -1,5 +1,6 @@
 //! A keyboard menu composed from the base Popover and Button primitives.
 use crate::NativeTextStyle as _;
+use crate::state::{PaintRole, Part, States, paint};
 use crate::{ActiveTheme, ButtonVariant, IconName, button, icon, keystroke_label};
 use gpui_kit::base::{ElementExt, Popover, Popup};
 use gpui_kit::rems;
@@ -341,14 +342,16 @@ pub fn menu(
                         .border_0()
                         .shadow_none()
                         .justify_start()
-                        .bg(if current {
-                            t.accent
-                        } else {
-                            t.foreground.opacity(0.)
+                        .bg(menu_paint(current, Part::Fill, &t))
+                        .text_color(menu_paint(current, Part::Label, &t))
+                        .hover(|s| {
+                            s.bg(menu_paint(true, Part::Fill, &t))
+                                .text_color(menu_paint(true, Part::Label, &t))
                         })
-                        .text_color(if current { t.on_accent } else { t.foreground })
-                        .hover(|s| s.bg(t.accent).text_color(t.on_accent))
-                        .active(|s| s.bg(t.accent).text_color(t.on_accent))
+                        .active(|s| {
+                            s.bg(menu_paint(true, Part::Fill, &t))
+                                .text_color(menu_paint(true, Part::Label, &t))
+                        })
                         .when(has_icons, |row| {
                             row.child(
                                 div()
@@ -656,18 +659,16 @@ fn submenu_panel(
                 .border_0()
                 .shadow_none()
                 .justify_start()
-                .bg(if highlighted == Some(index) {
-                    t.accent
-                } else {
-                    t.foreground.opacity(0.)
+                .bg(menu_paint(highlighted == Some(index), Part::Fill, &t))
+                .text_color(menu_paint(highlighted == Some(index), Part::Label, &t))
+                .hover(|s| {
+                    s.bg(menu_paint(true, Part::Fill, &t))
+                        .text_color(menu_paint(true, Part::Label, &t))
                 })
-                .text_color(if highlighted == Some(index) {
-                    t.on_accent
-                } else {
-                    t.foreground
+                .active(|s| {
+                    s.bg(menu_paint(true, Part::Fill, &t))
+                        .text_color(menu_paint(true, Part::Label, &t))
                 })
-                .hover(|s| s.bg(t.accent).text_color(t.on_accent))
-                .active(|s| s.bg(t.accent).text_color(t.on_accent))
                 .when(has_icons, |row| {
                     row.child(
                         div()
@@ -736,6 +737,17 @@ fn next_item(enabled: &[usize], current: Option<usize>, key: &str) -> Option<usi
         _ => position.map_or(0, |i| (i + 1) % enabled.len()),
     };
     Some(enabled[index])
+}
+
+/// A menu row's fill or label, through the MenuItem role (D10). Menus are
+/// key while open, so the active-window arm applies; M5 finalises values.
+fn menu_paint(highlighted: bool, part: Part, theme: &crate::Theme) -> gpui_kit::Hsla {
+    paint(
+        PaintRole::MenuItem { highlighted },
+        part,
+        States::active(),
+        theme,
+    )
 }
 
 #[cfg(test)]

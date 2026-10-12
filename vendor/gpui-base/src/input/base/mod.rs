@@ -1,3 +1,7 @@
+// Modified by gpui-macos contributors in 2026: render-time state children with the resolved style on InputBase.
+// Original: longbridge/gpui-kit 0bbd9870ce420af9feacbf948b21d3824d82dc0b.
+// Copyright 2024-2026 Longbridge; Apache-2.0. See LICENSE-APACHE and MACOS-PATCH.md.
+
 use crate::{StateStyle, StyledExt as _, TestSupportExt as _};
 use gpui::{
     AnyElement, App, Div, ElementId, InteractiveElement, Interactivity, IntoElement, ParentElement,
@@ -128,13 +132,25 @@ pub struct InputBase {
     base: crate::ObservedElement<gpui::Stateful<Div>>,
     style: StyleRefinement,
     semantic_styles: InputStyles,
-    children: Vec<AnyElement>,
+    children: Vec<crate::state_child::StateChild>,
     focused: bool,
     disabled: bool,
     role: crate::RoleOverride,
 }
 
 impl InputBase {
+    /// Adds a child built at render with the final control state and the
+    /// final resolved style, for example a focus ring that follows the
+    /// control's radius and border. `focus_visible` is the final `focused` value while enabled; `disabled` is the final disabled value.
+    pub fn child_with_resolved_style<E: IntoElement>(
+        mut self,
+        build: impl FnOnce(crate::ControlState, &StyleRefinement) -> E + 'static,
+    ) -> Self {
+        self.children
+            .push(crate::state_child::StateChild::styled(build));
+        self
+    }
+
     pub fn new(id: impl Into<ElementId>) -> Self {
         Self {
             base: div().id(id).test_support(),
@@ -212,7 +228,11 @@ impl Styled for InputBase {
 
 impl ParentElement for InputBase {
     fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
-        self.children.extend(elements);
+        self.children.extend(
+            elements
+                .into_iter()
+                .map(crate::state_child::StateChild::Ready),
+        );
     }
 }
 
@@ -232,11 +252,19 @@ impl StatefulInteractiveElement for InputBase {}
 impl RenderOnce for InputBase {
     fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
         let style = self.resolved_style();
+        // A field's focus is application-owned: `focus_visible` is the
+        // final `focused` value while enabled.
+        let control_state = crate::ControlState::new(self.disabled, false)
+            .with_focus_visible(self.focused && !self.disabled);
         self.base
             .when_some(self.role.resolve(|| Role::TextInput), |this, role| {
                 this.role(role)
             })
-            .children(self.children)
+            .children(
+                self.children
+                    .into_iter()
+                    .map(|child| child.resolve(control_state, &style)),
+            )
             .refine_style(&style)
     }
 }

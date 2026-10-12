@@ -1,4 +1,4 @@
-// Modified by gpui-macos contributors in 2026: render-time control state children and default styles.
+// Modified by gpui-macos contributors in 2026: render-time control state children, default styles and keyboard focus visibility.
 // Original: longbridge/gpui-kit 0bbd9870ce420af9feacbf948b21d3824d82dc0b.
 // Copyright 2024-2026 Longbridge; Apache-2.0. See LICENSE-APACHE and MACOS-PATCH.md.
 
@@ -112,13 +112,25 @@ impl Toggle {
     }
 
     /// Adds a child built with the final render-time control state.
-    /// `focus_visible` is currently false; focus producers are added separately.
+    /// `focus_visible` is true while the control shows keyboard focus.
     pub fn child_with_state<E: IntoElement>(
         mut self,
         build: impl FnOnce(crate::ControlState) -> E + 'static,
     ) -> Self {
         self.children
             .push(crate::state_child::StateChild::state(build));
+        self
+    }
+
+    /// Adds a child built with the final render-time control state and the
+    /// control's final resolved style (defaults beneath caller styles), for
+    /// example a focus ring that follows the control's radius and border.
+    pub fn child_with_resolved_style<E: IntoElement>(
+        mut self,
+        build: impl FnOnce(crate::ControlState, &StyleRefinement) -> E + 'static,
+    ) -> Self {
+        self.children
+            .push(crate::state_child::StateChild::styled(build));
         self
     }
 
@@ -221,7 +233,8 @@ impl RenderOnce for Toggle {
             .unwrap_or_else(|| self.focus_handle(window, cx));
         let pressed = self.pressed;
         let disabled = self.disabled;
-        let control_state = crate::ControlState::new(disabled, pressed);
+        let control_state =
+            crate::ControlState::new(disabled, pressed).with_focus(Some(&focus_handle), window);
         let styles = crate::state_child::resolve_styles(
             self.default_styles.take(),
             control_state,
@@ -275,7 +288,7 @@ impl RenderOnce for Toggle {
             .children(
                 self.children
                     .into_iter()
-                    .map(|child| child.resolve(control_state)),
+                    .map(|child| child.resolve(control_state, &styles.base)),
             )
             .refine_style(&styles.base)
     }

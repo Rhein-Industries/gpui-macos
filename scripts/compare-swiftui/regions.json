@@ -1,5 +1,8 @@
 {
-  "description": "Top-left window capture coordinates in points. Gallery sidebar: 13.75rem * 16 = 220pt (app.rs). Native unified toolbar exclusion: 52pt; verify against captures on the installed OS. Per-page entries merge with default. x/y use each capture's measured pixels-per-window-point scale; right/bottom are optional insets.",
+  "description": "Top-left window capture coordinates in points. `default` is the `content` region: right of the 220pt gallery sidebar (SIDEBAR_IDEAL_WIDTH) and below the 52pt native unified toolbar (verify against captures on the installed OS). `regions` adds named regions measured from the same capture; `sidebar` is x 0-220pt below the toolbar. x/y use each capture's measured pixels-per-window-point scale; right/bottom are optional insets, width/height optional extents. Per-page entries merge with `default`, and their `regions` merge per name.",
   "default": {"x": 220, "y": 52, "right": 0, "bottom": 0},
+  "regions": {
+    "sidebar": {"x": 0, "y": 52, "width": 220, "bottom": 0}
+  },
   "pages": {}
 }

@@ -7,8 +7,9 @@ The modified Rust files carry prominent change notices as required by Apache
 2.0 section 4(b). They are `src/button.rs`, `src/popup.rs`, `src/lib.rs`,
 `src/positioner.rs`, `src/popover.rs`, `src/hover_card.rs`,
 `src/input/base/element.rs`, `src/input/base/state.rs`,
-`src/checkbox.rs`, `src/radio.rs`, `src/switch.rs`, `src/toggle.rs`, and
-`src/tabs.rs`. Popup-related changes add repeatable content factories,
+`src/checkbox.rs`, `src/radio.rs`, `src/switch.rs`, `src/toggle.rs`,
+`src/tabs.rs`, `src/accordion.rs`, `src/date_picker.rs`,
+`src/color_picker.rs`, and `src/input/base/mod.rs`. Popup-related changes add repeatable content factories,
 presenter callbacks, explicit viewport positioning, owner-window focus/command
 restoration, and keyboard/accessibility activation without duplicating
 pointer-down toggles.
@@ -49,8 +50,28 @@ with keyed state and left-button mouse listeners rather than the caller's GPUI
 `group` slot; it is never set while disabled. The release is handled in the
 capture phase, so a handler that stops propagation cannot leave the control
 pressed, and a stored press is cancelled while the window is inactive. `child_with_disabled` remains a
-bool adapter. `focus_visible` is reserved and false in this milestone; focus
-behavior is unchanged.
+bool adapter. `focus_visible` is produced in the Checkbox, Radio, Switch,
+Toggle and Tab renderers: it is true while the control is enabled, its final
+focus handle is focused, the last input was from the keyboard and the window
+is active. Tab has no focus handle of its own, so it captures a handle passed
+to `track_focus` (and still tracks it on its element). Focus traversal and
+activation are unchanged.
+
+The same five controls also accept `child_with_resolved_style`, a child built
+with the final `ControlState` and the control's final resolved style, so a
+child can follow the control's corner radius and border width. `Radio` gains
+`focus_indicator(handle)`: keyboard focus on that handle is reported as the
+radio's `focus_visible` without tracking the handle on the radio, for groups
+that own one focus handle and move a cursor between options.
+`AccordionTrigger` gains `child_with_state` and `child_with_resolved_style`;
+its `checked` is the expanded state, and `focus_visible` follows a handle
+passed to `track_focus` (which it still tracks). Its other children keep
+their order. `DatePicker`, `ColorPicker` and `InputBase` gain
+`child_with_resolved_style` as well, so a child sees the final disabled
+value and final style after every builder call. For the pickers `checked`
+is the open state and `focus_visible` follows their focus handle with the
+same rule; for `InputBase`, whose focus is application-owned,
+`focus_visible` is the final `focused` value while enabled.
 
 Toggle and Tab also accept additive `default_styles`, a render-time factory of
 non-exhaustive `StateStyles` (base, hover, active) built from the final

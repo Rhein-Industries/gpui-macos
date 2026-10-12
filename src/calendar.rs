@@ -44,7 +44,9 @@ pub fn calendar(id: impl Into<ElementId>, state: &Entity<CalendarState>, cx: &Ap
             CalendarItemKind::Next => "Next".into(),
             _ => value.to_string().into(),
         })
-        .item(move |item, state, _, _| {
+        .item(move |item, state, window, _| {
+            // Keyboard focus shows only in an active window (spec §6.3).
+            let window_active = crate::state::States::in_window(window).window_active;
             let kind = state.kind();
             let interactive = kind != CalendarItemKind::Weekday;
             let mut item = item
@@ -99,16 +101,13 @@ pub fn calendar(id: impl Into<ElementId>, state: &Entity<CalendarState>, cx: &Ap
                         &t,
                     ))
                 })
+                .when(
+                    !state.is_disabled() && interactive && window_active,
+                    |item| item.focus_visible(|s| s.shadow(t.focus_shadow())),
+                )
                 .when(!state.is_disabled() && interactive, |item| {
+                    // No hover (spec §6.5, C17); the focus ring has no accent border.
                     item.cursor_pointer()
-                        .hover(|s| {
-                            s.bg(if state.is_active() {
-                                t.accent
-                            } else {
-                                t.hover_fill()
-                            })
-                        })
-                        .focus_visible(|s| s.border_color(t.accent).shadow(t.focus_shadow()))
                 })
                 .when(
                     matches!(kind, CalendarItemKind::Day | CalendarItemKind::Weekday),

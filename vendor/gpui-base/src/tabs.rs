@@ -1,12 +1,12 @@
-// Modified by gpui-macos contributors in 2026: render-time control state children and default styles.
+// Modified by gpui-macos contributors in 2026: render-time control state children, default styles and keyboard focus visibility.
 // Original: longbridge/gpui-kit 0bbd9870ce420af9feacbf948b21d3824d82dc0b.
 // Copyright 2024-2026 Longbridge; Apache-2.0. See LICENSE-APACHE and MACOS-PATCH.md.
 
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, ClickEvent, Div, ElementId, InteractiveElement, Interactivity, IntoElement,
-    MouseButton, ParentElement, Refineable as _, RenderOnce, Role, SharedString,
+    AnyElement, App, ClickEvent, Div, ElementId, FocusHandle, InteractiveElement, Interactivity,
+    IntoElement, MouseButton, ParentElement, Refineable as _, RenderOnce, Role, SharedString,
     StatefulInteractiveElement, StyleRefinement, Styled, Window, div, prelude::FluentBuilder as _,
     relative,
 };
@@ -38,6 +38,7 @@ pub struct Tab {
     size_of_set: Option<usize>,
     default_styles: Option<crate::state_child::DefaultStyles>,
     interaction: crate::state_child::CallerInteraction,
+    tracked_focus: Option<FocusHandle>,
 }
 
 impl Tab {
@@ -56,6 +57,7 @@ impl Tab {
             size_of_set: None,
             default_styles: None,
             interaction: Default::default(),
+            tracked_focus: None,
         }
     }
 
@@ -97,13 +99,25 @@ impl Tab {
     }
 
     /// Adds a child built with the final render-time control state.
-    /// `focus_visible` is currently false; focus producers are added separately.
+    /// `focus_visible` is true while the control shows keyboard focus.
     pub fn child_with_state<E: IntoElement>(
         mut self,
         build: impl FnOnce(crate::ControlState) -> E + 'static,
     ) -> Self {
         self.children
             .push(crate::state_child::StateChild::state(build));
+        self
+    }
+
+    /// Adds a child built with the final render-time control state and the
+    /// control's final resolved style (defaults beneath caller styles), for
+    /// example a focus ring that follows the control's radius and border.
+    pub fn child_with_resolved_style<E: IntoElement>(
+        mut self,
+        build: impl FnOnce(crate::ControlState, &StyleRefinement) -> E + 'static,
+    ) -> Self {
+        self.children
+            .push(crate::state_child::StateChild::styled(build));
         self
     }
 
@@ -192,6 +206,13 @@ impl InteractiveElement for Tab {
         self.interaction.hover = Some(f(StyleRefinement::default()));
         self
     }
+
+    /// Captured so `ControlState::focus_visible` can follow the handle; the
+    /// tab still tracks it as before.
+    fn track_focus(mut self, focus_handle: &FocusHandle) -> Self {
+        self.tracked_focus = Some(focus_handle.clone());
+        self
+    }
 }
 
 impl StatefulInteractiveElement for Tab {
@@ -205,7 +226,8 @@ impl StatefulInteractiveElement for Tab {
 impl RenderOnce for Tab {
     fn render(mut self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let disabled = self.disabled;
-        let control_state = crate::ControlState::new(disabled, self.selected);
+        let control_state = crate::ControlState::new(disabled, self.selected)
+            .with_focus(self.tracked_focus.as_ref(), window);
         let styles = crate::state_child::resolve_styles(
             self.default_styles.take(),
             control_state,
@@ -216,6 +238,7 @@ impl RenderOnce for Tab {
         );
 
         self.base
+            .when_some(self.tracked_focus, |this, focus| this.track_focus(&focus))
             .id(self.id)
             .test_support()
             .role(Role::Tab)
@@ -246,7 +269,7 @@ impl RenderOnce for Tab {
             .children(
                 self.children
                     .into_iter()
-                    .map(|child| child.resolve(control_state)),
+                    .map(|child| child.resolve(control_state, &styles.base)),
             )
             .refine_style(&styles.base)
     }

@@ -71,7 +71,7 @@ pub use hover_card::hover_card;
 pub use icon::{Icon, IconName, icon};
 pub use input::{Input, input, number_input, textarea};
 pub use link::Link;
-pub use list::{inset_list, inset_list_row, scrollbar, virtual_list};
+pub use list::{inset_list, inset_list_row, row_selection, scrollbar, virtual_list};
 pub use loading::native_spinner;
 pub use menu::{MenuItem, menu};
 pub use native_assets::NativeAssets;

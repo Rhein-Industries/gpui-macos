@@ -59,7 +59,9 @@ impl RenderOnce for OtpInput {
         let t = cx.macos();
         let value = state.read(cx);
         let digits: Vec<char> = value.value().chars().collect();
-        let focused = !self.disabled && value.focus_handle(cx).is_focused(window);
+        // A field: focused in an active window and enabled (spec §6.3).
+        let focused =
+            !self.disabled && crate::state::field_focused(&value.focus_handle(cx), window);
         let mut cells = Vec::new();
         for index in 0..value.len() {
             let target = state.clone();
@@ -76,11 +78,8 @@ impl RenderOnce for OtpInput {
                     .justify_center()
                     .border_1()
                     .rounded(rems(0.375))
-                    .border_color(if current {
-                        t.accent
-                    } else {
-                        t.control_border()
-                    })
+                    // The ring replaces the accent border (spec §6.3, C15).
+                    .border_color(t.control_border())
                     .bg(t.surface)
                     .shadow(if current {
                         t.focus_shadow()

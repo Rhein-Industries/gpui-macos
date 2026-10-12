@@ -27,12 +27,23 @@ release binaries embed their fallback SVGs instead of reading the source
 checkout at runtime, so copied app bundles do not depend on Documents access
 or a developer's original path. Manifest regeneration preserves this feature.
 
+Local behavioral changes in GPUI Component (Kit) are limited to hover: list
+items, table rows and diff gutters treat a fully transparent `list_hover` /
+`table_hover` token as no hover and keep their resting background (see
+`gpui-component/MACOS-PATCH.md`).
+
 Local behavioral changes in GPUI Base include:
 
 - Checkbox, Radio, Switch, Toggle, and Tab render-time `ControlState` children via
   `child_with_state`; `child_with_disabled` remains an adapter. Toggle and Tab
-  also take render-time `default_styles` beneath caller styles. Focus visibility
-  is reserved (currently false), with existing focus behavior preserved.
+  also take render-time `default_styles` beneath caller styles.
+  `ControlState::focus_visible` is true while the control is enabled, its focus
+  handle is focused, the last input was from the keyboard and the window is
+  active (Tab captures a handle passed to `track_focus`). Focus behavior is
+  otherwise unchanged. `child_with_resolved_style` also passes the control's
+  final style; `Radio::focus_indicator` reports a group's focus on its
+  current option; `AccordionTrigger`, `DatePicker`, `ColorPicker` and
+  `InputBase` gain the same resolved-style state children.
 - Disabled buttons report AccessKit's disabled flag on their existing node,
   while preserving their role, label and input/focus suppression.
 - Secure inputs accept a configurable mask character. Rendering, selection

@@ -1,3 +1,7 @@
+// Modified by gpui-macos contributors in 2026: render-time state children with the resolved style.
+// Original: longbridge/gpui-kit 0bbd9870ce420af9feacbf948b21d3824d82dc0b.
+// Copyright 2024-2026 Longbridge; Apache-2.0. See LICENSE-APACHE and MACOS-PATCH.md.
+
 use crate::TestSupportExt as _;
 use std::rc::Rc;
 
@@ -23,11 +27,23 @@ pub struct DatePicker {
     disabled: bool,
     focus_handle: FocusHandle,
     style: StyleRefinement,
-    children: Vec<AnyElement>,
+    children: Vec<crate::state_child::StateChild>,
     on_open_change: Option<OpenChange>,
 }
 
 impl DatePicker {
+    /// Adds a child built at render with the final control state and the
+    /// final resolved style, for example a focus ring that follows the
+    /// control's radius and border. `checked` is the open state.
+    pub fn child_with_resolved_style<E: IntoElement>(
+        mut self,
+        build: impl FnOnce(crate::ControlState, &StyleRefinement) -> E + 'static,
+    ) -> Self {
+        self.children
+            .push(crate::state_child::StateChild::styled(build));
+        self
+    }
+
     pub fn new(id: impl Into<ElementId>, focus_handle: &FocusHandle) -> Self {
         Self {
             base: div().id(id).test_support(),
@@ -62,7 +78,11 @@ impl Styled for DatePicker {
 }
 impl ParentElement for DatePicker {
     fn extend(&mut self, children: impl IntoIterator<Item = AnyElement>) {
-        self.children.extend(children);
+        self.children.extend(
+            children
+                .into_iter()
+                .map(crate::state_child::StateChild::Ready),
+        );
     }
 }
 impl InteractiveElement for DatePicker {
@@ -77,9 +97,12 @@ impl InteractiveElement for DatePicker {
 }
 impl StatefulInteractiveElement for DatePicker {}
 impl RenderOnce for DatePicker {
-    fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, _: &mut App) -> impl IntoElement {
         let open = self.open;
         let disabled = self.disabled;
+        let control_state =
+            crate::ControlState::new(disabled, open).with_focus(Some(&self.focus_handle), window);
+        let style = self.style;
         let handler = self.on_open_change;
         self.base
             .role(Role::ComboBox)
@@ -106,7 +129,11 @@ impl RenderOnce for DatePicker {
                     cx.propagate();
                 }
             })
-            .refine_style(&self.style)
-            .children(self.children)
+            .refine_style(&style)
+            .children(
+                self.children
+                    .into_iter()
+                    .map(|child| child.resolve(control_state, &style)),
+            )
     }
 }

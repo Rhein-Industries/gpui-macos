@@ -4,11 +4,11 @@
 //! opt in using [`native_material`]. [`material`] supplies a deterministic fill
 //! for canvas overlays and other platforms.
 use crate::NativeTextStyle as _;
-use crate::state::PaintRole;
+use crate::state::{PaintRole, Part, RowKind, States, paint};
 use crate::{ActiveTheme, Button, ButtonVariant, IconName, button, icon};
 use gpui_kit::{
-    App, Div, ElementId, FontWeight, IntoElement, RenderOnce, SharedString, Stateful, Window,
-    WindowControlArea, div, prelude::*, px, rems,
+    App, Div, ElementId, FontWeight, SharedString, Stateful, WindowControlArea, div, prelude::*,
+    px, rems,
 };
 use std::time::Duration;
 
@@ -103,6 +103,8 @@ pub fn native_toolbar_group(id: impl Into<ElementId>, cx: &App) -> crate::native
 
 /// A flat, icon-only command inside a shared toolbar glass group.
 /// The label names the action for assistive technology; add a tooltip if useful.
+/// It is a toolbar item: a hover disc (ink about 0.05 / 0.04), no bezel, and
+/// the outset focus ring for keyboard focus (spec §6.3, §6.5, C17).
 pub fn toolbar_button(
     id: impl Into<ElementId>,
     name: IconName,
@@ -110,8 +112,9 @@ pub fn toolbar_button(
     cx: &App,
 ) -> Button {
     let t = cx.macos();
+    let role = PaintRole::ToolbarItem;
+    let rest = States::active();
     button(id, "", ButtonVariant::Secondary, cx)
-        .paint_role(PaintRole::Custom)
         .accessibility_label(label)
         .fill_duration(Duration::ZERO)
         .size(rems(2.))
@@ -119,10 +122,11 @@ pub fn toolbar_button(
         .rounded_full()
         .border_0()
         .shadow_none()
-        .bg(t.foreground.opacity(0.))
-        .hover(|s| s.bg(t.hover_fill()))
-        .active(|s| s.bg(t.pressed_fill()))
-        .focus_visible(|s| s.bg(t.hover_fill()).shadow(t.focus_shadow()))
+        .bg(paint(role, Part::Fill, rest, t))
+        .text_color(paint(role, Part::Label, rest, t))
+        .active(|s| s.bg(paint(role, Part::Fill, rest.pressed(true), t)))
+        .paint_role(role)
+        .record_role_default()
         .child(icon(name).size(rems(1.)))
 }
 
@@ -144,48 +148,20 @@ pub fn sidebar(id: impl Into<ElementId>, cx: &App) -> Stateful<Div> {
         .p(rems(0.5))
         .child(
             crate::native::native_glass((id, "sidebar-material"), cx)
+                .sidebar_material()
                 .absolute()
                 .inset_0()
                 .corner_radius(px(0.)),
         )
 }
 
-#[derive(IntoElement)]
-struct SidebarSymbol {
-    name: IconName,
-    selected: bool,
-}
-
-impl RenderOnce for SidebarSymbol {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let t = cx.macos();
-        let accent =
-            if !window.is_window_active() && !t.reduce_transparency && !t.increased_contrast {
-                // Source-list vibrancy deemphasizes symbols in an inactive window.
-                // Blend the app accent so a custom or system accent keeps its hue.
-                t.accent.blend(if t.is_dark() {
-                    gpui_kit::Hsla::black().opacity(0.4)
-                } else {
-                    gpui_kit::Hsla::white().opacity(0.4)
-                })
-            } else {
-                t.accent
-            };
-        icon(self.name)
-            .size(rems(
-                crate::native::sidebar_metrics().icon_column_width.as_f32() / 16.,
-            ))
-            .font_weight(FontWeight::NORMAL)
-            .text_color(if self.selected && window.is_window_active() {
-                t.on_accent
-            } else {
-                accent
-            })
-    }
-}
-
-/// A keyboard-accessible sidebar command with a blue selected row.
-/// The application owns selection and supplies its click handler.
+/// A keyboard-accessible sidebar command with native row selection (spec
+/// §6.4, C20): an opaque accent row with a white label while emphasized in a
+/// key window, a neutral overlay over the material while unemphasized, and
+/// an opaque neutral row in an inactive window. Pass the sidebar's focus
+/// state to [`Button::selection_emphasis`]; the default is emphasized. The
+/// application owns selection and supplies its click handler. Rows have no
+/// hover (C17).
 pub fn sidebar_item(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
@@ -201,36 +177,24 @@ pub fn sidebar_item(
         _ => crate::TextStyle::Body,
     };
     let label = label.into();
+    // The emphasized default; the final selection and emphasis resolve at
+    // render (`Button::selection_emphasis`).
+    let role = PaintRole::Row {
+        kind: RowKind::Sidebar,
+        selected,
+        emphasized: true,
+    };
+    let rest = States::active();
+    let symbol_size = rems(crate::native::sidebar_metrics().icon_column_width.as_f32() / 16.);
+    let (accent, on_accent) = (t.accent, t.on_accent);
     button(id, "", ButtonVariant::Secondary, cx)
-        .paint_role(PaintRole::Custom)
         .accessibility_label(label.clone())
         .selected(selected)
         .aria_selected(selected)
-        .selected_fill(t.accent)
-        .inactive_style(
-            if selected {
-                crate::native::sidebar_inactive_selection(cx)
-            } else {
-                t.foreground.opacity(0.)
-            },
-            if selected {
-                if t.is_dark() && !t.increased_contrast {
-                    t.accent.blend(gpui_kit::Hsla::white().opacity(0.2))
-                } else {
-                    t.accent
-                }
-            } else {
-                t.foreground
-            },
-        )
         // Native row selection is immediate. A transparent resting row should
         // not interpolate through a tinted opaque color when highlighted.
         .fill_duration(Duration::ZERO)
-        .bg(if selected {
-            t.accent
-        } else {
-            t.foreground.opacity(0.)
-        })
+        .bg(paint(role, Part::Fill, rest, t))
         .w_full()
         .h(rems(metrics.row_height.as_f32() / 16.))
         .native_text_style(text_style, t)
@@ -242,24 +206,24 @@ pub fn sidebar_item(
         .shadow_none()
         .justify_start()
         .gap(rems(0.25))
-        .text_color(if selected { t.on_accent } else { t.foreground })
+        .text_color(paint(role, Part::Label, rest, t))
         .font_weight(if selected {
             FontWeight::SEMIBOLD
         } else {
             FontWeight::NORMAL
         })
-        .hover(|s| {
-            s.bg(if selected { t.accent } else { t.hover_fill() })
-                .border_color(t.foreground.opacity(0.))
+        // Pressing a row does not change its paint (spec §6.4).
+        .active(|s| s)
+        .paint_role(role)
+        .record_role_default()
+        // The symbol is accent, and white on the emphasized selection.
+        .child_with_highlight(move |highlighted| {
+            icon(name)
+                .size(symbol_size)
+                .font_weight(FontWeight::NORMAL)
+                .text_color(if highlighted { on_accent } else { accent })
         })
-        .active(|s| s.bg(if selected { t.accent } else { t.pressed_fill() }))
-        .focus_visible(|s| {
-            s.bg(if selected { t.accent } else { t.hover_fill() })
-                .border_color(t.accent)
-                .shadow(t.focus_shadow())
-        })
-        .child(SidebarSymbol { name, selected })
-        .child(div().min_w_0().truncate().child(label))
+        .child_with_highlight(move |_| div().min_w_0().truncate().child(label))
 }
 
 /// A sidebar section with a subdued heading and caller-supplied row children.
@@ -406,7 +370,7 @@ pub fn settings_row(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gpui_kit::{Context, Render, TestAppContext};
+    use gpui_kit::{Context, InteractiveElement, IntoElement, Render, TestAppContext, Window};
 
     struct Harness;
     impl Render for Harness {
@@ -470,6 +434,171 @@ mod tests {
                 cx.debug_bounds("sidebar").unwrap().size.width,
                 px(220. * zoom)
             );
+        }
+    }
+
+    struct SidebarRows {
+        emphasized: bool,
+    }
+    impl Render for SidebarRows {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            sidebar("rows", cx)
+                .child(
+                    sidebar_item("selected-row", "Favorites", IconName::Star, true, cx)
+                        .selection_emphasis(self.emphasized)
+                        .underline()
+                        .debug_selector(|| "selected-row".into()),
+                )
+                .child(
+                    sidebar_item("other-row", "Documents", IconName::File, false, cx)
+                        .selection_emphasis(self.emphasized)
+                        .debug_selector(|| "other-row".into()),
+                )
+        }
+    }
+
+    /// Sidebar selection, spec §6.4 (C20), in a focused key window, an
+    /// unfocused key window and an inactive window, light and dark.
+    #[gpui_kit::test]
+    fn sidebar_selection_follows_emphasis_and_window_state(cx: &mut TestAppContext) {
+        use crate::tokens::ink;
+        cx.update(crate::init);
+        let (view, cx) = cx.add_window_view(|_, _| SidebarRows { emphasized: true });
+        let solid = |cx: &mut gpui_kit::VisualTestContext, selector: &'static str| {
+            let bounds = cx.debug_bounds(selector).unwrap();
+            cx.update(|window, _| {
+                let bounds = bounds.scale(window.scale_factor());
+                window
+                    .painted_quads()
+                    .into_iter()
+                    .filter(|quad| quad.bounds == bounds)
+                    .filter_map(|quad| quad.background.as_solid())
+                    .find(|fill| fill.a > 0.)
+            })
+        };
+        let label = |cx: &mut gpui_kit::VisualTestContext| {
+            let bounds = cx.debug_bounds("selected-row").unwrap();
+            cx.update(|window, _| {
+                let bounds = bounds.scale(window.scale_factor());
+                window
+                    .painted_underlines()
+                    .into_iter()
+                    .find(|line| bounds.contains(&line.bounds.center()))
+                    .unwrap()
+                    .color
+            })
+        };
+        for theme in [crate::Theme::light(), crate::Theme::dark()] {
+            let dark = theme.is_dark();
+            cx.update(|_, cx| theme.clone().apply(cx));
+            for (state, active, emphasized) in [
+                ("focused key", true, true),
+                ("unfocused key", true, false),
+                ("inactive", false, true),
+            ] {
+                if active {
+                    cx.update(|window, _| window.activate_window());
+                    cx.run_until_parked();
+                } else {
+                    cx.deactivate_window();
+                }
+                view.update(cx, |view, cx| {
+                    view.emphasized = emphasized;
+                    cx.notify();
+                });
+                cx.update(|window, cx| window.draw(cx).clear(cx));
+                let (fill, text) = match state {
+                    "focused key" => (theme.accent, theme.on_accent),
+                    "unfocused key" => (
+                        ink(&theme).opacity(if dark { 0.088 } else { 0.085 }),
+                        theme.foreground,
+                    ),
+                    _ => (
+                        gpui_kit::rgb(if dark { 0x363636 } else { 0xe5e5e5 }).into(),
+                        theme.foreground,
+                    ),
+                };
+                assert_eq!(
+                    solid(cx, "selected-row"),
+                    Some(fill),
+                    "{state} fill, dark {dark}"
+                );
+                assert_eq!(label(cx), text, "{state} label, dark {dark}");
+                assert_eq!(
+                    solid(cx, "other-row"),
+                    None,
+                    "{state}: unselected rows stay clear"
+                );
+                // No hover on rows (C17).
+                let center = cx.debug_bounds("other-row").unwrap().center();
+                cx.simulate_mouse_move(center, None, Default::default());
+                cx.update(|window, cx| window.draw(cx).clear(cx));
+                assert_eq!(solid(cx, "other-row"), None, "{state}: no row hover");
+                cx.simulate_mouse_move(
+                    gpui_kit::point(px(900.), px(900.)),
+                    None,
+                    Default::default(),
+                );
+            }
+        }
+    }
+
+    struct OrderedRow;
+    impl Render for OrderedRow {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            sidebar("ordered", cx)
+                .debug_selector(|| "ordered-sidebar".into())
+                .child(
+                    sidebar_item("ordered-row", "Inbox", IconName::Star, true, cx)
+                        .debug_selector(|| "ordered-row".into())
+                        .child(div().debug_selector(|| "ordered-badge".into()).child("3")),
+                )
+        }
+    }
+
+    /// A caller's extra child follows the symbol and label (one ordered
+    /// child sequence), and the sidebar material follows window activity
+    /// (spec §7.1, §7.2; C20).
+    #[gpui_kit::test]
+    fn sidebar_children_keep_order_and_material_follows_activity(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let (view, cx) = cx.add_window_view(|_, _| OrderedRow);
+        for theme in [crate::Theme::light(), crate::Theme::dark()] {
+            let dark = theme.is_dark();
+            cx.update(|_, cx| theme.clone().apply(cx));
+            for active in [true, false] {
+                if active {
+                    cx.update(|window, _| window.activate_window());
+                    cx.run_until_parked();
+                } else {
+                    cx.deactivate_window();
+                }
+                view.update(cx, |_, cx| cx.notify());
+                cx.update(|window, cx| window.draw(cx).clear(cx));
+                let row = cx.debug_bounds("ordered-row").unwrap();
+                let badge = cx.debug_bounds("ordered-badge").unwrap();
+                assert!(
+                    badge.left() > row.left() + px(60.),
+                    "the badge follows the symbol and label: {badge:?} in {row:?}"
+                );
+                let shell = cx.debug_bounds("ordered-sidebar").unwrap();
+                let expected: gpui_kit::Hsla = match active {
+                    true => {
+                        gpui_kit::Hsla::from(gpui_kit::rgb(if dark { 0x2c2c2c } else { 0xe7e7e7 }))
+                            .opacity(if dark { 0.816 } else { 0.898 })
+                    }
+                    false => gpui_kit::rgb(if dark { 0x282828 } else { 0xf0f0f0 }).into(),
+                };
+                cx.update(|window, _| {
+                    let shell = shell.scale(window.scale_factor());
+                    assert!(
+                        window.painted_quads().iter().any(|quad| {
+                            quad.bounds == shell && quad.background.as_solid() == Some(expected)
+                        }),
+                        "sidebar material, active {active}, dark {dark}"
+                    );
+                });
+            }
         }
     }
 }

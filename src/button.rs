@@ -1,6 +1,6 @@
 //! Button presentation that suppresses transient styles while disabled.
 use crate::ActiveTheme as _;
-use crate::state::{PaintRole, Part, States, paint};
+use crate::state::{PaintRole, Part, States, focus_ring_for, paint};
 use gpui_kit::base::motion::transition;
 use gpui_kit::base::{ButtonStyles, RoleOverride};
 use gpui_kit::{
@@ -11,6 +11,12 @@ use gpui_kit::{
 use std::{rc::Rc, time::Duration};
 
 type HoverListener = Rc<dyn Fn(&bool, &mut Window, &mut App)>;
+/// A child resolved at render, in the order it was added.
+enum ButtonChild {
+    Ready(AnyElement),
+    /// Built with whether the row shows its emphasized selection.
+    Highlight(Box<dyn FnOnce(bool) -> AnyElement>),
+}
 
 /// A macOS button backed by gpui-base's activation and focus behavior.
 /// Transient styles are applied only after the final disabled state is known.
@@ -24,7 +30,8 @@ pub struct Button {
     disabled: bool,
     selected: bool,
     selected_fill: Option<Hsla>,
-    inactive_style: Option<(Hsla, Hsla)>,
+    selection_emphasis: bool,
+    children: Vec<ButtonChild>,
     paint_role: PaintRole,
     role_default: Option<(Option<Hsla>, Option<Hsla>)>,
     fill_duration: Duration,
@@ -89,7 +96,8 @@ impl Button {
             disabled: false,
             selected: false,
             selected_fill: None,
-            inactive_style: None,
+            selection_emphasis: true,
+            children: Vec::new(),
             paint_role: PaintRole::Custom,
             role_default: None,
             fill_duration: crate::motion::CONTROL_COLOR,
@@ -148,11 +156,27 @@ impl Button {
         self
     }
 
-    /// Custom paint for an inactive window or a disabled button. This is the
-    /// compatibility path for `sidebar_item` until it gets the Row role (M4).
-    /// It does not change activation or disabled semantics.
-    pub(crate) fn inactive_style(mut self, fill: Hsla, foreground: Hsla) -> Self {
-        self.inactive_style = Some((fill, foreground));
+    /// Whether a selected row shows the emphasized (focused) selection. A
+    /// sidebar row is emphasized while its list has keyboard focus: pass
+    /// `focus.contains_focused(window, cx)` for the sidebar's focus handle.
+    /// Unemphasized rows show a neutral selection with the label color, and
+    /// an inactive window is never emphasized (spec §6.4, C20). Default
+    /// `true`. Only row-style buttons such as [`crate::sidebar_item`] use it.
+    pub fn selection_emphasis(mut self, emphasized: bool) -> Self {
+        self.selection_emphasis = emphasized;
+        self
+    }
+
+    /// Adds a child built at render with whether the row shows its
+    /// emphasized selection. Children keep the order they were added in.
+    pub(crate) fn child_with_highlight<E: IntoElement>(
+        mut self,
+        build: impl FnOnce(bool) -> E + 'static,
+    ) -> Self {
+        self.children
+            .push(ButtonChild::Highlight(Box::new(move |highlighted| {
+                build(highlighted).into_any_element()
+            })));
         self
     }
 
@@ -231,7 +255,8 @@ impl Styled for Button {
 
 impl ParentElement for Button {
     fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
-        self.base.extend(elements);
+        self.children
+            .extend(elements.into_iter().map(ButtonChild::Ready));
     }
 }
 
@@ -288,18 +313,34 @@ impl RenderOnce for Button {
         }
         let states = States::in_window(window).disabled(self.disabled);
         let window_active = states.window_active;
+        // Rows resolve their selection from the final selected and emphasis
+        // values (spec §6.4).
+        let role = match self.paint_role {
+            PaintRole::Row { kind, .. } => PaintRole::Row {
+                kind,
+                selected: self.selected,
+                emphasized: self.selection_emphasis,
+            },
+            role => role,
+        };
+        let highlighted = window_active
+            && matches!(
+                role,
+                PaintRole::Row {
+                    selected: true,
+                    emphasized: true,
+                    ..
+                }
+            );
         // Plan D6: the role owns the fill while the rest background is the
         // role default; the label is resolved separately, so a caller
         // `text_color` survives while the role still paints the bezel.
-        let default = self
-            .role_default
-            .filter(|_| self.paint_role != PaintRole::Custom);
+        let default = self.role_default.filter(|_| role != PaintRole::Custom);
         let owns_fill = default.is_some_and(|(fill, _)| fill == solid(self.base.style()));
         let owns_label =
             owns_fill && default.is_some_and(|(_, label)| label == self.base.style().text.color);
         if owns_fill {
             let theme = cx.macos();
-            let role = self.paint_role;
             let pressed = states.pressed(true);
             self.base = self
                 .base
@@ -318,10 +359,19 @@ impl RenderOnce for Button {
                 }
             }
             self.active = Some(Box::new(active));
-        } else if (!window_active || self.disabled)
-            && let Some((fill, foreground)) = self.inactive_style
-        {
-            self.base = self.base.bg(fill).text_color(foreground);
+            // Hover follows the role (spec §6.5, C17): only toolbar items and
+            // menu rows respond to the pointer. A caller hover still wins.
+            if let Some(fill) = crate::state::hover(role, theme) {
+                let mut hover = self.hover.take().map(|style| *style).unwrap_or_default();
+                if hover.background.is_none() {
+                    hover.background = Some(fill.into());
+                }
+                self.hover = Some(Box::new(hover));
+            }
+            // A row's fill is its selection; the generic selected tint does not apply.
+            if matches!(role, PaintRole::Row { .. }) {
+                self.selected_fill = None;
+            }
         }
         let focus = self.focus.clone().unwrap_or_else(|| {
             window
@@ -350,8 +400,7 @@ impl RenderOnce for Button {
         };
         let fill = rest.map(|rest| {
             let state = pointer.read(cx);
-            let focus_visible =
-                window_active && focus.is_focused(window) && window.last_input_was_keyboard();
+            let focus_visible = crate::state::focus_visible(&focus, window);
             let transient = |style: &Option<Box<StyleRefinement>>| style.as_deref().and_then(solid);
             let target = if self.disabled || !window_active {
                 None
@@ -383,9 +432,25 @@ impl RenderOnce for Button {
             tests::record_fill(&self.id, fill);
         }
 
+        let ring = (!self.disabled
+            && role.has_focus_ring()
+            && crate::state::focus_visible(&focus, window))
+        .then(|| focus_ring_for(self.base.style(), window, cx.macos()));
         let mut base = self.base;
         if self.focus.is_none() {
             base = base.track_focus(&focus);
+        }
+        base = base.children(self.children.into_iter().map(|child| match child {
+            ButtonChild::Ready(element) => element,
+            ButtonChild::Highlight(build) => build(highlighted),
+        }));
+        // Spec §6.3: the outset ring around the whole control, keyboard focus
+        // in an active window only. The fill and border stay unchanged.
+        if let Some(ring) = ring {
+            if base.style().position.is_none() {
+                base = base.relative();
+            }
+            base = base.child(ring);
         }
         if let Some(fill) = fill {
             // Every state paints the sampled fill, so GPUI's instant state
@@ -472,16 +537,16 @@ mod tests {
         FILLS.with(|fills| fills.borrow()[id])
     }
 
+    /// Toolbar items keep a hover disc (spec §6.5, C17); it eases in and out.
     #[gpui_kit::test]
-    fn fill_eases_to_the_hover_state_and_back(cx: &mut TestAppContext) {
+    fn toolbar_item_fill_eases_to_the_hover_state_and_back(cx: &mut TestAppContext) {
         cx.update(crate::init);
         struct Harness;
         impl Render for Harness {
             fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
                 div().size(rems(25.)).child(
-                    crate::button("fill", "Apply", crate::ButtonVariant::Secondary, cx)
-                        .w(rems(6.25))
-                        .h(rems(2.5)),
+                    crate::toolbar_button("fill", crate::IconName::Plus, "Add", cx)
+                        .fill_duration(crate::motion::CONTROL_COLOR),
                 )
             }
         }
@@ -497,11 +562,11 @@ mod tests {
         let (rest, hover) = cx.update(|_, cx| {
             let t = cx.macos();
             (
-                t.bezel_fill(),
-                crate::state::over(t.bezel_fill(), t.hover_fill()),
+                gpui_kit::transparent_black(),
+                crate::tokens::ink(t).opacity(0.05),
             )
         });
-        assert_eq!(fill("fill"), rest);
+        assert_eq!(fill("fill").a, rest.a);
 
         cx.simulate_mouse_move(point(px(10.), px(10.)), None, Modifiers::default());
         redraw(cx);
@@ -509,19 +574,83 @@ mod tests {
             .advance_clock(crate::motion::CONTROL_COLOR / 2);
         redraw(cx);
         let halfway = fill("fill");
-        assert_ne!(halfway, rest, "the hover transition has started");
+        assert!(halfway.a > 0., "the hover transition has started");
         assert_ne!(halfway, hover, "the hover transition is still running");
 
         cx.executor().advance_clock(crate::motion::CONTROL_COLOR);
         redraw(cx);
-        assert_eq!(fill("fill"), hover);
+        assert_eq!(fill("fill"), hover, "ink @0.05 disc (light)");
 
         cx.simulate_mouse_move(point(px(300.), px(300.)), None, Modifiers::default());
         redraw(cx);
         cx.executor()
             .advance_clock(crate::motion::CONTROL_COLOR * 2);
         redraw(cx);
-        assert_eq!(fill("fill"), rest);
+        assert_eq!(fill("fill").a, 0.);
+    }
+
+    /// Bezels have no hover (spec §6.5, C17): the fill is unchanged under the
+    /// pointer, for every bordered variant, in light and dark.
+    #[gpui_kit::test]
+    fn hovering_a_bezel_leaves_its_fill_unchanged(cx: &mut TestAppContext) {
+        use crate::ButtonVariant::*;
+        cx.update(crate::init);
+        struct Harness;
+        impl Render for Harness {
+            fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+                div().size(rems(25.)).flex().flex_col().children(
+                    [
+                        ("hover-secondary", Secondary),
+                        ("hover-outline", Outline),
+                        ("hover-primary", Primary),
+                        ("hover-danger", Danger),
+                        ("hover-borderless", Borderless),
+                    ]
+                    .map(|(id, variant)| {
+                        crate::button(id, "Apply", variant, cx)
+                            .w(rems(6.25))
+                            .h(rems(2.5))
+                            .debug_selector(move || id.into())
+                    }),
+                )
+            }
+        }
+        let (view, cx) = cx.add_window_view(|_, _| Harness);
+        for theme in [crate::Theme::light(), crate::Theme::dark()] {
+            cx.update(|window, cx| {
+                theme.clone().apply(cx);
+                window.activate_window();
+            });
+            cx.run_until_parked();
+            let redraw = |cx: &mut gpui_kit::VisualTestContext| {
+                view.update(cx, |_, cx| cx.notify());
+                cx.update(|window, cx| window.draw(cx).clear(cx));
+            };
+            // Let the theme change finish its fill transition first.
+            redraw(cx);
+            cx.executor()
+                .advance_clock(crate::motion::CONTROL_COLOR * 2);
+            for id in [
+                "hover-secondary",
+                "hover-outline",
+                "hover-primary",
+                "hover-danger",
+                "hover-borderless",
+            ] {
+                cx.simulate_mouse_move(point(px(390.), px(390.)), None, Modifiers::default());
+                redraw(cx);
+                let rest = fill(id);
+                let center = cx.debug_bounds(id).unwrap().center();
+                cx.simulate_mouse_move(center, None, Modifiers::default());
+                redraw(cx);
+                cx.executor()
+                    .advance_clock(crate::motion::CONTROL_COLOR * 2);
+                redraw(cx);
+                assert_eq!(fill(id), rest, "{id} hovered");
+            }
+            assert_eq!(fill("hover-secondary"), theme.bezel_fill());
+            assert_eq!(fill("hover-primary"), theme.accent);
+        }
     }
 
     #[gpui_kit::test]

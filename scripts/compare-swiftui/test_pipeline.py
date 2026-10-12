@@ -245,6 +245,81 @@ class PipelineTests(unittest.TestCase):
             self.assertIn('opacity', (folder / 'index.html').read_text())
             self.assertNotIn('<test>', (folder / 'index.html').read_text())
 
+    def test_page_regions_merge_named_regions_and_validate(self):
+        config = json.loads((SCRIPT.parent / 'compare-swiftui' / 'regions.json').read_text())
+        regions = comparison.page_regions(config, 'checkbox')
+        self.assertEqual(regions['content'], {'x': 220, 'y': 52, 'right': 0, 'bottom': 0})
+        self.assertEqual(regions['sidebar'], {'x': 0, 'y': 52, 'width': 220, 'bottom': 0})
+        config = {'default': {'x': 220, 'y': 52}, 'regions': {'sidebar': {'x': 0, 'y': 52, 'width': 220}},
+                  'pages': {'table': {'y': 60, 'regions': {'sidebar': {'y': 70}, 'header': {'x': 220, 'y': 52, 'height': 27}}}}}
+        regions = comparison.page_regions(config, 'table')
+        self.assertEqual(regions['content'], {'x': 220, 'y': 60})
+        self.assertEqual(regions['sidebar'], {'x': 0, 'y': 70, 'width': 220})
+        self.assertEqual(regions['header'], {'x': 220, 'y': 52, 'height': 27})
+        self.assertEqual(set(comparison.page_regions(config, 'checkbox')), {'content', 'sidebar'})
+        for bad in [{'default': {'x': -1, 'y': 0}}, {'default': {'x': 0}},
+                    {'default': {'x': 0, 'y': 0}, 'regions': {'sidebar': {'x': 0, 'y': 0, 'depth': 3}}},
+                    {'default': {'x': 0, 'y': 0}, 'regions': {'sidebar': {'x': float('nan'), 'y': 0}}}]:
+            with self.assertRaises(RuntimeError):
+                comparison.page_regions(bad, 'checkbox')
+
+    def test_named_regions_from_one_capture(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            a = np.full((80, 100, 3), 255, dtype=np.uint8)
+            b = a.copy()
+            b[20:, :20] = 0  # Difference only inside the sidebar (x 0-10 pt, below y 10 pt).
+            Image.fromarray(a).save(folder / 'gpui.png')
+            Image.fromarray(b).save(folder / 'swiftui.png')
+            captures = {app: {'size_pixels': [100, 80], 'capture_scale': [2, 2]} for app in ['gpui', 'swiftui']}
+            regions = {'content': {'x': 10, 'y': 10}, 'sidebar': {'x': 0, 'y': 10, 'width': 10, 'bottom': 0},
+                       'empty': {'x': 50, 'y': 10, 'width': 0}}
+            result = comparison.compare(folder, captures, regions, .1)
+            # The content metric keeps its pre-region shape (baselines read it).
+            self.assertEqual(result['content']['box_pixels'], [20, 20, 100, 80])
+            self.assertNotIn('region_points', result['content'])
+            self.assertEqual(result['content']['mismatch_percent'], 0)
+            self.assertEqual(result['region_points'], regions['content'])
+            sidebar = result['regions']['sidebar']
+            self.assertEqual(sidebar['box_pixels'], [0, 20, 20, 80])
+            self.assertEqual(sidebar['mismatch_percent'], 100)
+            self.assertEqual(sidebar['region_points'], regions['sidebar'])
+            self.assertEqual(result['regions']['content']['box_pixels'], [20, 20, 100, 80])
+            self.assertIn('error', result['regions']['empty'])
+            self.assertEqual(comparison.compare(folder, captures, {'x': 10, 'y': 10}, .1)['content'], result['content'])
+            with self.assertRaisesRegex(RuntimeError, 'Content region is empty'):
+                comparison.compare(folder, captures, {'content': {'x': 10, 'y': 10, 'width': 0}}, .1)
+            data = {'manifest': {}, 'appearances': ['light'], 'pairs': [{'page': 'checkbox', 'name': 'Checkbox', 'group': 'Forms', 'category': 1, 'appearance': 'light', 'captures': captures, 'metrics': result}]}
+            comparison.write_report(folder, data)
+            self.assertIn("Region '+esc(name)", (folder / 'index.html').read_text())
+            self.assertIn("Baseline delta '+esc(name)", (folder / 'index.html').read_text())
+
+    def test_region_baseline_deltas(self):
+        def pair(content, sidebar=None):
+            metrics = {'content': {'mismatch_percent': content, 'ssim': .9}}
+            if sidebar is not None:
+                metrics['regions'] = {'content': metrics['content'], 'sidebar': {'mismatch_percent': sidebar, 'ssim': .8}}
+            return {'page': 'checkbox', 'appearance': 'light', 'metrics': metrics}
+        for prior, expected in [(pair(4, 6), {'sidebar': {'mismatch_percent_points': -4, 'ssim': 0}}), (pair(4), None)]:
+            results = {'pairs': [pair(3, 2)]}
+            comparison.baseline_deltas(results, {'pairs': [prior]})
+            delta = results['pairs'][0]['baseline_delta']
+            self.assertEqual(delta['content_mismatch_percent_points'], -1)
+            self.assertEqual(delta.get('regions'), expected)
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                comparison.print_baseline_deltas(results)
+            self.assertEqual('sidebar mismatch -4.000' in output.getvalue(), expected is not None)
+
+    def test_main_passes_every_named_region(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / 'run'
+            argv = ['compare', '--skip-build', '--pages', 'checkbox', '--appearances', 'light', '--out', str(out)]
+            metrics = {'content': {'mismatch_percent': 3, 'ssim': .9}, 'regions': {'sidebar': {'mismatch_percent': 1.5, 'ssim': .95}}}
+            with patch.object(sys, 'argv', argv), patch.object(comparison, 'preflight', return_value={'display': {'id': 2}}), patch.object(comparison, 'executable', return_value=Path('/fixture')), patch.object(comparison, 'capture'), patch.object(comparison, 'compare', return_value=metrics) as compare, contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(comparison.main(), 0)
+            self.assertEqual(set(compare.call_args.args[2]), {'content', 'sidebar'})
+            self.assertIn('sidebar mismatch 1.500%', output.getvalue())
+
     def test_display_selection(self):
         main = {'id': 1, 'name': 'DELL', 'scale': 1}
         retina = {'id': 2, 'name': 'Color LCD', 'scale': 2}

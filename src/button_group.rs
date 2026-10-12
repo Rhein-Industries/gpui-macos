@@ -11,6 +11,9 @@ use gpui_kit::rems;
 use gpui_kit::{App, Context, ElementId, Entity, FocusHandle, KeyBinding, Window, prelude::*};
 use std::rc::Rc;
 
+/// A segment's corner radius inside the 24 pt track, in points.
+const SEGMENT_RADIUS: f32 = crate::controls::TAB_RADIUS;
+
 type Change = Rc<dyn Fn(usize, &mut Window, &mut App)>;
 struct Cursor {
     focus: FocusHandle,
@@ -59,6 +62,8 @@ pub fn button_group(
     // Segmented, spec §6.2.5 (C6), resolved here because the group has a window.
     let states = crate::state::States::in_window(window);
     let window_active = states.window_active;
+    // Spec §6.3: keyboard focus rings the cursor's segment.
+    let focus_visible = crate::state::focus_visible(&cursor.read(cx).focus, window);
     let count = items.len();
     let rows = items
         .iter()
@@ -91,26 +96,27 @@ pub fn button_group(
                 .h(rems(1.375))
                 .py(rems(0.))
                 .border_1()
-                .rounded(rems(0.3125))
+                .rounded(pt(SEGMENT_RADIUS))
                 .border_color(t.foreground.opacity(0.))
                 .font_family(t.font.clone())
                 .native_text_style(crate::TextStyle::Body, cx.macos())
                 .text_color(segment(Part::Label))
                 .bg(segment(Part::Fill))
                 .when(
-                    window_active
-                        && focus.is_focused(window)
-                        && cursor.read(cx).index == Some(index),
-                    |row| row.border_color(t.accent).shadow(t.focus_shadow()),
+                    focus_visible && cursor.read(cx).index == Some(index),
+                    // Follows the segment's own radius and one-pixel border.
+                    |mut row| {
+                        let ring = crate::state::focus_ring_for(row.style(), window, &t);
+                        row.child(ring)
+                    },
                 )
-                // The accent selection is not replaced by the hover overlay;
-                // pressing an unselected segment turns it accent (§6.2.5 P).
+                // No hover (spec §6.5, C17); pressing an unselected segment
+                // turns it accent (§6.2.5 P).
                 .when(window_active && !item.disabled && !role_selected, |row| {
                     let pressed = item_states.pressed(true);
                     let pressed_fill = paint(role, Part::Fill, pressed, &t);
                     let pressed_label = paint(role, Part::Label, pressed, &t);
-                    row.hover(|row| row.bg(t.hover_fill()))
-                        .active(move |row| row.bg(pressed_fill).text_color(pressed_label))
+                    row.active(move |row| row.bg(pressed_fill).text_color(pressed_label))
                 })
                 .child(item.label.clone())
                 .when(
@@ -189,6 +195,10 @@ pub fn tab_list(
         }
     });
     let count = items.len();
+    // Spec §6.3: keyboard focus on the list rings the cursor's segment.
+    let focus_visible = crate::state::focus_visible(&cursor.read(cx).focus, window);
+    let cursor_index = cursor.read(cx).index;
+    let t = cx.macos().clone();
     let rows = items
         .iter()
         .enumerate()
@@ -196,6 +206,10 @@ pub fn tab_list(
             let change = on_change.clone();
             let focus = cursor.read(cx).focus.clone();
             crate::tab(index, item.label.clone(), selected == Some(index), cx)
+                .when(focus_visible && cursor_index == Some(index), |mut tab| {
+                    let ring = crate::state::focus_ring_for(tab.style(), window, &t);
+                    tab.child(ring)
+                })
                 .debug_selector(move || format!("macos-tab-{index}"))
                 .disabled(item.disabled)
                 .set_position(index + 1, count)

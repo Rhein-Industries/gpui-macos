@@ -111,7 +111,9 @@ impl StatefulInteractiveElement for Link {
 }
 
 impl RenderOnce for Link {
-    fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, _: &mut App) -> impl IntoElement {
+        // Keyboard focus shows only in an active window (spec §6.3).
+        let window_active = crate::state::States::in_window(window).window_active;
         let mut base = self.base;
         if self.disabled {
             base = base.cursor_default();
@@ -122,7 +124,7 @@ impl RenderOnce for Link {
             if let Some(style) = self.active {
                 base = base.active(|_| *style);
             }
-            if let Some(style) = self.focus_visible {
+            if let Some(style) = self.focus_visible.filter(|_| window_active) {
                 base = base.focus_visible(|_| *style);
             }
         }

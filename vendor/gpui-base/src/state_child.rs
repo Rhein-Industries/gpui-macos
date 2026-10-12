@@ -1,17 +1,20 @@
-// New file by gpui-macos contributors in 2026: render-time control state children and default styles.
+// New file by gpui-macos contributors in 2026: render-time control state children, default styles and focus visibility.
 // Copyright 2026 gpui-macos contributors; Apache-2.0. See LICENSE-APACHE and MACOS-PATCH.md.
 
 use gpui::{
-    AnyElement, App, ElementId, Entity, InteractiveElement, IntoElement, MouseButton, MouseUpEvent,
-    Refineable as _, StyleRefinement, Window,
+    AnyElement, App, ElementId, Entity, FocusHandle, InteractiveElement, IntoElement, MouseButton,
+    MouseUpEvent, Refineable as _, StyleRefinement, Window,
 };
 
-/// Final render-time control state. Focus visibility is reserved for a later
-/// producer; it is currently always false.
+/// Final render-time control state.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ControlState {
     pub disabled: bool,
+    /// The control shows keyboard focus: it is enabled, its focus handle is
+    /// focused, the last input was from the keyboard and the window is
+    /// active. Produced by Checkbox, Radio, Switch and Toggle from their
+    /// focus handle, and by Tab from a handle passed to `track_focus`.
     pub focus_visible: bool,
     /// The control's final value: a checked or mixed checkbox, an on switch,
     /// a checked radio, a pressed toggle or a selected tab.
@@ -33,6 +36,22 @@ impl ControlState {
 
     pub(crate) fn with_pressed(mut self, pressed: bool) -> Self {
         self.pressed = pressed && !self.disabled;
+        self
+    }
+
+    /// Sets `focus_visible` directly, for controls whose focus is
+    /// application-owned (text field frames).
+    pub(crate) fn with_focus_visible(mut self, visible: bool) -> Self {
+        self.focus_visible = visible && !self.disabled;
+        self
+    }
+
+    /// Sets `focus_visible` from the control's final focus handle.
+    pub(crate) fn with_focus(mut self, focus: Option<&FocusHandle>, window: &Window) -> Self {
+        self.focus_visible = !self.disabled
+            && window.is_window_active()
+            && window.last_input_was_keyboard()
+            && focus.is_some_and(|focus| focus.is_focused(window));
         self
     }
 }
@@ -83,19 +102,33 @@ pub(crate) fn track_press<E: InteractiveElement>(element: E, state: &Entity<bool
         .on_mouse_up_out(MouseButton::Left, set(state, false))
 }
 
+type StyledChild = Box<dyn FnOnce(ControlState, &StyleRefinement) -> AnyElement>;
+
 /// Children are resolved after builders finalize the control state.
 pub(crate) enum StateChild {
     Ready(AnyElement),
     State(Box<dyn FnOnce(ControlState) -> AnyElement>),
+    /// Also receives the control's final resolved style (defaults, caller
+    /// instance and semantic styles), for example to follow its radius and
+    /// border width.
+    Styled(StyledChild),
 }
 impl StateChild {
     pub(crate) fn state<E: IntoElement>(build: impl FnOnce(ControlState) -> E + 'static) -> Self {
         Self::State(Box::new(move |state| build(state).into_any_element()))
     }
-    pub(crate) fn resolve(self, state: ControlState) -> AnyElement {
+    pub(crate) fn styled<E: IntoElement>(
+        build: impl FnOnce(ControlState, &StyleRefinement) -> E + 'static,
+    ) -> Self {
+        Self::Styled(Box::new(move |state, style| {
+            build(state, style).into_any_element()
+        }))
+    }
+    pub(crate) fn resolve(self, state: ControlState, style: &StyleRefinement) -> AnyElement {
         match self {
             Self::Ready(element) => element,
             Self::State(build) => build(state),
+            Self::Styled(build) => build(state, style),
         }
     }
 }

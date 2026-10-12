@@ -55,13 +55,7 @@ impl TabGroupRenderer for MacosDock {
                 .fill_duration(Duration::ZERO)
                 .bg(t.foreground.opacity(0.))
                 .selected_fill(t.surface)
-                .hover(|s| {
-                    s.bg(if index == group.active_ix() {
-                        t.surface
-                    } else {
-                        t.hover_fill()
-                    })
-                })
+                // Tabs have no hover (spec §6.5, C17).
                 .active(|s| {
                     s.bg(if index == group.active_ix() {
                         t.surface
@@ -69,14 +63,7 @@ impl TabGroupRenderer for MacosDock {
                         t.pressed_fill()
                     })
                 })
-                .focus_visible(|s| {
-                    s.bg(if index == group.active_ix() {
-                        t.surface
-                    } else {
-                        t.hover_fill()
-                    })
-                    .shadow(t.focus_shadow())
-                })
+                .focus_visible(|s| s.shadow(t.focus_shadow()))
                 .min_w(rems(6.))
                 .selected(index == group.active_ix())
                 .on_click(move |_, window, cx| target.select_tab(index, window, cx))

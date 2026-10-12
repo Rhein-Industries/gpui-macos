@@ -214,8 +214,16 @@ impl Theme {
             .blur_radius(px(2.)),
         ]
     }
+    /// The keyboard focus ring as a shadow, for adapters that draw it with a
+    /// `focus_visible` style: a solid band of [`Theme::focus_ring`], as wide
+    /// as the spec's 3 pt outset (§6.3). GPUI keeps the control's corner
+    /// radius on a spread shadow; the native controls draw the ring as an
+    /// outset border with the radius plus 3 instead.
     pub fn focus_shadow(&self) -> Vec<BoxShadow> {
-        vec![BoxShadow::new(px(0.), px(0.), self.accent.opacity(0.35)).spread_radius(px(3.))]
+        vec![
+            BoxShadow::new(px(0.), px(0.), self.focus_ring())
+                .spread_radius(px(crate::tokens::FOCUS_RING_WIDTH)),
+        ]
     }
     pub fn popover_shadow(&self) -> Vec<BoxShadow> {
         vec![
@@ -257,7 +265,8 @@ impl Theme {
             destructive_foreground: self.on_accent,
             border: self.control_border(),
             input: self.control_border(),
-            ring: self.accent,
+            // The same ring as `focus_shadow` and the native controls (§6.3).
+            ring: self.focus_ring(),
             selection: self.selection,
         }
     }
@@ -321,11 +330,12 @@ impl Theme {
             c.accent_foreground = self.foreground;
             c.primary = self.accent;
             c.primary_foreground = self.on_accent;
-            c.primary_hover = self.accent.opacity(0.85);
+            // Hover, C17: bezels, rows and tables do not respond to the pointer.
+            c.primary_hover = self.accent;
             c.primary_active = role(PaintRole::Prominent(Tint::Accent), Part::Fill, pressed);
             c.secondary = bezel;
             c.secondary_foreground = self.foreground;
-            c.secondary_hover = crate::state::over(bezel, self.hover_fill());
+            c.secondary_hover = bezel;
             c.secondary_active = bezel_pressed;
             c.button = bezel;
             c.button_foreground = self.foreground;
@@ -341,7 +351,7 @@ impl Theme {
             c.button_secondary_active = c.secondary_active;
             c.danger = self.danger;
             c.danger_foreground = self.on_accent;
-            c.danger_hover = self.danger.opacity(0.85);
+            c.danger_hover = self.danger;
             c.danger_active = role(PaintRole::Prominent(Tint::Red), Part::Fill, pressed);
             c.button_danger = c.danger;
             c.button_danger_foreground = c.danger_foreground;
@@ -349,7 +359,7 @@ impl Theme {
             c.button_danger_active = c.danger_active;
             c.success = self.success;
             c.success_foreground = Hsla::from(rgb(0x003b11));
-            c.success_hover = self.success.opacity(0.85);
+            c.success_hover = self.success;
             c.success_active = self.success.opacity(0.7);
             c.button_success = c.success;
             c.button_success_foreground = c.success_foreground;
@@ -361,7 +371,7 @@ impl Theme {
             } else {
                 self.on_accent
             };
-            c.warning_hover = self.warning.opacity(0.85);
+            c.warning_hover = self.warning;
             c.warning_active = self.warning.opacity(0.7);
             c.button_warning = c.warning;
             c.button_warning_foreground = c.warning_foreground;
@@ -386,7 +396,7 @@ impl Theme {
             c.description_list_label_foreground = self.secondary;
             c.caret = self.accent;
             c.selection = self.selection;
-            c.ring = self.accent.opacity(0.4);
+            c.ring = self.focus_ring();
             c.link = role(PaintRole::Link, Part::Label, rest);
             c.link_hover = c.link;
             c.link_active = role(PaintRole::Link, Part::Label, pressed);
@@ -402,18 +412,18 @@ impl Theme {
             c.list = self.surface;
             c.list_active = self.selected_fill();
             c.list_active_border = self.accent;
-            c.list_hover = self.hover_fill();
-            c.list_even = self.normal_fill();
+            c.list_hover = gpui_kit::transparent_black();
+            c.list_even = self.alternating_row();
             c.list_head = self.background;
             c.table = self.surface;
             c.table_active = self.selected_fill();
             c.table_active_border = self.accent;
-            c.table_even = self.normal_fill();
+            c.table_even = self.alternating_row();
             c.table_head = self.background;
             c.table_head_foreground = self.secondary;
             c.table_foot = self.background;
             c.table_foot_foreground = self.secondary;
-            c.table_hover = self.hover_fill();
+            c.table_hover = gpui_kit::transparent_black();
             c.table_row_border = self.divider();
             c.tab = self.background;
             c.tab_foreground = self.secondary;
@@ -582,6 +592,31 @@ mod tests {
                 );
                 assert_eq!(kit.link, theme.link());
                 assert_eq!(kit.slider_bar, theme.indicator_accent());
+                // One focus ring for the native controls, Base and Kit (§6.3).
+                assert_eq!(kit.ring, theme.focus_ring());
+                assert_eq!(base.tokens.colors.ring, theme.focus_ring());
+                assert_eq!(theme.focus_shadow()[0].color, theme.focus_ring());
+                // No hover on bezels or rows (§6.5, C17).
+                assert_eq!(kit.button_hover, kit.button);
+                for (hover, rest) in [
+                    (kit.primary_hover, kit.primary),
+                    (kit.secondary_hover, kit.secondary),
+                    (kit.danger_hover, kit.danger),
+                    (kit.success_hover, kit.success),
+                    (kit.warning_hover, kit.warning),
+                    (kit.info_hover, kit.info),
+                    (kit.button_primary_hover, kit.button_primary),
+                    (kit.button_secondary_hover, kit.button_secondary),
+                    (kit.button_danger_hover, kit.button_danger),
+                    (kit.button_success_hover, kit.button_success),
+                    (kit.button_warning_hover, kit.button_warning),
+                    (kit.button_info_hover, kit.button_info),
+                    (kit.link_hover, kit.link),
+                ] {
+                    assert_eq!(hover, rest, "Kit button hover equals rest (C17)");
+                }
+                assert_eq!(kit.list_hover.a, 0.);
+                assert_eq!(kit.table_hover.a, 0.);
                 assert_eq!(base.tokens.radius.md, px(6.));
                 assert_eq!(cx.macos(), &theme);
                 assert_native_projection(cx, &theme);

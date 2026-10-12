@@ -1,4 +1,4 @@
-// Modified by gpui-macos contributors in 2026: render-time control state children.
+// Modified by gpui-macos contributors in 2026: render-time control state children and keyboard focus visibility.
 // Original: longbridge/gpui-kit 0bbd9870ce420af9feacbf948b21d3824d82dc0b.
 // Copyright 2024-2026 Longbridge; Apache-2.0. See LICENSE-APACHE and MACOS-PATCH.md.
 
@@ -255,13 +255,25 @@ impl Switch {
     }
 
     /// Adds a child built with the final render-time control state.
-    /// `focus_visible` is currently false; focus producers are added separately.
+    /// `focus_visible` is true while the control shows keyboard focus.
     pub fn child_with_state<E: IntoElement>(
         mut self,
         build: impl FnOnce(crate::ControlState) -> E + 'static,
     ) -> Self {
         self.children
             .push(crate::state_child::StateChild::state(build));
+        self
+    }
+
+    /// Adds a child built with the final render-time control state and the
+    /// control's final resolved style (defaults beneath caller styles), for
+    /// example a focus ring that follows the control's radius and border.
+    pub fn child_with_resolved_style<E: IntoElement>(
+        mut self,
+        build: impl FnOnce(crate::ControlState, &StyleRefinement) -> E + 'static,
+    ) -> Self {
+        self.children
+            .push(crate::state_child::StateChild::styled(build));
         self
     }
     pub fn new(id: impl Into<ElementId>) -> Self {
@@ -386,6 +398,9 @@ impl RenderOnce for Switch {
         let disabled = self.disabled;
         let press = crate::state_child::press_state(&self.id, disabled, window, cx);
         let pressed = *press.read(cx);
+        let control_state = crate::ControlState::new(disabled, checked)
+            .with_pressed(pressed)
+            .with_focus(Some(&focus_handle), window);
         let style = self.resolved_style();
 
         self.base
@@ -422,9 +437,11 @@ impl RenderOnce for Switch {
                     })
                 },
             )
-            .children(self.children.into_iter().map(|child| {
-                child.resolve(crate::ControlState::new(disabled, checked).with_pressed(pressed))
-            }))
+            .children(
+                self.children
+                    .into_iter()
+                    .map(|child| child.resolve(control_state, &style)),
+            )
             .refine_style(&style)
     }
 }

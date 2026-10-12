@@ -1,6 +1,6 @@
 //! Styled constructors retain gpui-base's controlled-state builder APIs.
 use crate::NativeTextStyle as _;
-use crate::state::{PaintRole, Part, States, Tint, over, paint};
+use crate::state::{PaintRole, Part, States, Tint, focus_ring_pt, over, paint};
 use crate::tokens::{
     BEZEL_HEIGHT, BEZEL_PADDING_X, CHECKBOX_RADIUS, CHECKBOX_ROW_HEIGHT, CHECKBOX_SIZE,
     CONTROL_RADIUS, ICON_BUTTON_BEZEL, ICON_BUTTON_GLYPH, ICON_BUTTON_MARGIN, INDICATOR_LABEL_GAP,
@@ -14,30 +14,6 @@ use gpui_kit::{
     App, ElementId, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, RenderOnce,
     SharedString, StatefulInteractiveElement, StyleRefinement, Styled, Window, div,
 };
-
-/// AppKit keeps inactive controls enabled while replacing accent color with a
-/// neutral selection. Used by selection rows until the row rule (plan M4).
-pub(crate) fn control_selection(theme: &crate::Theme, active: bool) -> Hsla {
-    if active {
-        theme.accent
-    } else {
-        theme
-            .control_fill()
-            .blend(
-                theme
-                    .foreground
-                    .opacity(if theme.is_dark() { 0.1 } else { 0.08 }),
-            )
-    }
-}
-
-pub(crate) fn control_mark(theme: &crate::Theme, active: bool) -> Hsla {
-    if active {
-        theme.on_accent
-    } else {
-        theme.foreground
-    }
-}
 
 /// Well and mark of a checkbox or radio, spec §6.2.6.
 pub(crate) fn check_paint(theme: &crate::Theme, states: States, on: bool) -> (Hsla, Hsla) {
@@ -65,10 +41,15 @@ impl RenderOnce for NativeCheckboxIndicator {
             .disabled(control.disabled)
             .pressed(control.pressed);
         let (well, mark) = check_paint(cx.macos(), states, on);
+        // Spec §6.3: the ring surrounds the box only (22 × 22).
+        let ring = control
+            .focus_visible
+            .then(|| focus_ring_pt(CHECKBOX_RADIUS, window, cx.macos()));
         // Spec §4.4 / §4.1 (C9): a 16 pt box with radius 5.5.
         div()
             .size(pt(CHECKBOX_SIZE))
             .debug_selector(move || format!("macos-checkbox-indicator-{id}"))
+            .relative()
             .flex_shrink_0()
             .flex()
             .items_center()
@@ -87,6 +68,7 @@ impl RenderOnce for NativeCheckboxIndicator {
                     .text_color(mark),
                 )
             })
+            .children(ring)
     }
 }
 
@@ -101,10 +83,15 @@ impl RenderOnce for NativeRadioIndicator {
             .disabled(control.disabled)
             .pressed(control.pressed);
         let (well, mark) = check_paint(cx.macos(), states, on);
+        // Spec §6.3: the focused radio's circle carries the ring.
+        let ring = control
+            .focus_visible
+            .then(|| focus_ring_pt(RADIO_SIZE / 2., window, cx.macos()));
         // Spec §4.4: a 16 pt circle with a 5 pt dot.
         div()
             .size(pt(RADIO_SIZE))
             .debug_selector(move || format!("macos-radio-indicator-{id}"))
+            .relative()
             .flex_shrink_0()
             .rounded_full()
             .bg(well)
@@ -114,6 +101,7 @@ impl RenderOnce for NativeRadioIndicator {
             .when(on, |indicator| {
                 indicator.child(div().size(pt(RADIO_DOT)).rounded_full().bg(mark))
             })
+            .children(ring)
     }
 }
 
@@ -152,12 +140,6 @@ pub fn button(
     let bg = paint(role, Part::Fill, rest, t);
     let fg = paint(role, Part::Label, rest, t);
     let borderless = role == PaintRole::Borderless;
-    // Hover is unchanged until the hover rule lands (plan M4); a borderless
-    // button has none (C4). Overlays composite, so a translucent bezel darkens.
-    let hover_bg = match role {
-        PaintRole::Prominent(_) => bg.blend(Hsla::black().opacity(0.08)),
-        _ => over(bg, t.hover_fill()),
-    };
     // Restyled callers keep a pressed fill; the resolver also sets the label.
     let pressed_bg = paint(role, Part::Fill, rest.pressed(true), t);
     let label = label.into();
@@ -180,6 +162,8 @@ pub fn button(
         // minimum height. Source: the SwiftUI probe's regular `.borderless`
         // "Button" frame is 41 x 16 pt, the label's 13 pt advance (40.29,
         // spec §4) by its Body line (16, §3.1). Keyboard focus keeps the ring.
+        // No role here has hover (spec §6.5, C17); keyboard focus draws the
+        // outset ring at render (§6.3) without an accent border.
         .when(borderless, |button| {
             button.min_h(rems(0.)).p(rems(0.)).border_0()
         })
@@ -187,9 +171,7 @@ pub fn button(
         .text_color(fg)
         .paint_role(role)
         .record_role_default()
-        .when(!borderless, |button| button.hover(|s| s.bg(hover_bg)))
         .active(|s| s.bg(pressed_bg))
-        .focus_visible(|s| s.border_color(t.accent).shadow(t.focus_shadow()))
         .selected_fill(match role {
             PaintRole::Prominent(_) => bg,
             _ => over(bg, t.selected_fill()),
@@ -259,7 +241,6 @@ pub fn checkbox(
             NativeCheckboxIndicator(id, state == CheckboxState::Indeterminate, control)
         })
         .child(label)
-        .focus_visible(|s| s.shadow(t.focus_shadow()))
         .styles(|s| s.disabled(|s| s.text_color(t.disabled_foreground())))
 }
 
@@ -284,12 +265,12 @@ pub fn switch(
         .text_color(t.foreground)
         .font_family(t.font.clone())
         .native_text_style(crate::TextStyle::Body, cx.macos())
-        .focus_visible(|s| s.shadow(t.focus_shadow()))
         .styles(|s| s.disabled(|s| s.text_color(t.disabled_foreground())))
         .child_with_state(move |control| {
             crate::switch_motion::SwitchMotion::new(id, control.checked)
                 .disabled(control.disabled)
                 .pressed(control.pressed)
+                .focus_visible(control.focus_visible)
         })
         .child(label)
 }
@@ -318,20 +299,14 @@ pub fn radio(
         .native_text_style(crate::TextStyle::Body, cx.macos())
         .child_with_state(move |control| NativeRadioIndicator(id, control))
         .child(label)
-        .focus_visible(|s| s.shadow(t.focus_shadow()))
         .styles(|s| s.disabled(|s| s.text_color(t.disabled_foreground())))
 }
 
 /// Render-time default paint for a toggle button or tab from its final value,
 /// disabled state and window activity. It sits beneath caller styles, so a
 /// caller `bg` or `text_color` wins and extra children inherit the label ink.
-fn bezel_styles(
-    role: PaintRole,
-    hover: impl FnOnce(Hsla, &crate::Theme) -> Option<StyleRefinement>,
-    disabled: bool,
-    window: &Window,
-    cx: &App,
-) -> StateStyles {
+/// Neither role has hover (spec §6.5, C17).
+fn bezel_styles(role: PaintRole, disabled: bool, window: &Window, cx: &App) -> StateStyles {
     let t = cx.macos();
     let states = States::in_window(window).disabled(disabled);
     let part = |part, states| paint(role, part, states, t);
@@ -342,7 +317,7 @@ fn bezel_styles(
             .text_color(part(Part::Label, states)),
     );
     // Base drops default transient styles while disabled; an inactive window
-    // has no hover or pressed paint either.
+    // has no pressed paint either.
     if states.window_active {
         let pressed = states.pressed(true);
         styles = styles.active(
@@ -350,9 +325,6 @@ fn bezel_styles(
                 .bg(part(Part::Fill, pressed))
                 .text_color(part(Part::Label, pressed)),
         );
-        if let Some(hover) = hover(fill, t) {
-            styles = styles.hover(hover);
-        }
     }
     styles
 }
@@ -383,6 +355,10 @@ pub fn toggle(
         .native_text_style(crate::TextStyle::Body, cx.macos())
         .font_weight(FontWeight::NORMAL)
         .child(label)
+        .relative()
+        .child_with_resolved_style(|state, style| {
+            ControlFocusRing(state.focus_visible, style.clone())
+        })
         // Toggle off is a Bezel (spec §6.1); on is ToggleOn (§6.2.4). The
         // role follows the final pressed value.
         .default_styles(|state, window, cx| {
@@ -391,23 +367,20 @@ pub fn toggle(
             } else {
                 PaintRole::Bezel
             };
-            // The hover border and bezel overlay stay until the hover rule (M4).
-            bezel_styles(
-                role,
-                |fill, t| {
-                    let hover = StyleRefinement::default().border_color(t.focus_border());
-                    Some(if role == PaintRole::Bezel {
-                        hover.bg(over(fill, t.hover_fill()))
-                    } else {
-                        hover
-                    })
-                },
-                state.disabled,
-                window,
-                cx,
-            )
+            bezel_styles(role, state.disabled, window, cx)
         })
-        .focus_visible(|s| s.border_color(t.accent).shadow(t.focus_shadow()))
+}
+
+/// The whole-control focus ring of a Base control, from its render-time
+/// `focus_visible` state and final resolved style, so a caller's radius or
+/// border is followed (spec §6.3).
+#[derive(IntoElement)]
+pub(crate) struct ControlFocusRing(pub bool, pub StyleRefinement);
+
+impl RenderOnce for ControlFocusRing {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        crate::state::focus_ring_if(self.0, &self.1, window, cx.macos())
+    }
 }
 
 /// A multi-choice toolbar. Compose independent `toggle` children; each retains
@@ -453,9 +426,9 @@ pub fn link(
         .border_color(t.foreground.opacity(0.))
         .px(rems(0.25))
         .py(rems(0.375))
-        .hover(|s| s.text_color(color).underline())
+        // No hover (spec §6.5, C17); the pointer cursor is kept.
         .active(|s| s.text_color(pressed))
-        .focus_visible(|s| s.border_color(t.accent).shadow(t.focus_shadow()))
+        .focus_visible(|s| s.shadow(t.focus_shadow()))
         .styles(|s| s.disabled(|s| s.text_color(disabled)))
 }
 
@@ -498,28 +471,28 @@ pub fn tab(
         .items_center()
         .gap_1()
         .border_1()
-        .rounded(rems(0.3125))
+        .rounded(pt(TAB_RADIUS))
         .border_color(t.foreground.opacity(0.))
         .font_family(t.font.clone())
         .native_text_style(crate::TextStyle::Body, cx.macos())
         .font_weight(FontWeight::NORMAL)
+        // Spec §6.3: a focused segment carries the ring.
+        .relative()
+        .child_with_resolved_style(|state, style| {
+            ControlFocusRing(state.focus_visible, style.clone())
+        })
         // Segmented, spec §6.2.5 (C6): accent selection with a white label,
-        // following the final selected value.
+        // following the final selected value. No hover (§6.5, C17).
         .default_styles(|state, window, cx| {
             let role = PaintRole::Segment {
                 selected: state.checked,
             };
-            // Unselected tabs keep their hover overlay until the hover rule (M4).
-            bezel_styles(
-                role,
-                |_, t| (!state.checked).then(|| StyleRefinement::default().bg(t.hover_fill())),
-                state.disabled,
-                window,
-                cx,
-            )
+            bezel_styles(role, state.disabled, window, cx)
         })
-        .focus_visible(|s| s.border_color(t.accent).shadow(t.focus_shadow()))
 }
+
+/// A segment's corner radius inside the 24 pt track, in points.
+pub(crate) const TAB_RADIUS: f32 = 5.;
 
 #[cfg(test)]
 mod tests {
@@ -1159,15 +1132,21 @@ mod tests {
             );
             assert_eq!(painted_label_color(cx, "label-only-disabled"), custom_ink());
 
-            // Hover: one composite fill, and none on a disabled toggle.
+            // No hover (spec §6.5, C17): the rest fill stays under the pointer.
             for (selector, expected) in [
-                ("off-toggle", over(theme.bezel_fill(), theme.hover_fill())),
+                ("off-toggle", theme.bezel_fill()),
+                ("plain-tab", theme.foreground.opacity(0.)),
                 ("disabled-off-toggle", ink(&theme).opacity(0.039)),
             ] {
                 let center = cx.debug_bounds(selector).unwrap().center();
                 cx.simulate_mouse_move(center, None, Default::default());
                 redraw(cx);
-                assert_eq!(fills_at(cx, selector), [expected], "{selector} hovered");
+                let fills = fills_at(cx, selector);
+                if expected.a == 0. {
+                    assert!(fills.is_empty(), "{selector} hovered: {fills:?}");
+                } else {
+                    assert_eq!(fills, [expected], "{selector} hovered");
+                }
             }
 
             // Pressing a toggle paints its pressed arm (spec §6.2.4 P).
@@ -1206,8 +1185,8 @@ mod tests {
             redraw(cx);
             assert_eq!(
                 fills_at(cx, "active-cleared"),
-                // Only the (hovered) default remains: no pressed @0.165.
-                [over(theme.bezel_fill(), theme.hover_fill())],
+                // Only the rest default remains: no pressed @0.165.
+                [theme.bezel_fill()],
                 ".active(|s| s) clears the default pressed paint"
             );
             release(cx, at);
@@ -2036,5 +2015,197 @@ mod tests {
             assert!(!state.radio && !state.switch);
             assert_eq!(state.changes, [0; 3]);
         });
+    }
+
+    struct RingHarness {
+        focus: Vec<FocusHandle>,
+        field: Entity<gpui_kit::base::input::InputState>,
+    }
+
+    impl Render for RingHarness {
+        fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .items_start()
+                .gap(rems(1.))
+                .p(rems(1.))
+                .child(
+                    checkbox("ring-checkbox", "Remember", CheckboxState::Unchecked, cx)
+                        .track_focus(&self.focus[0]),
+                )
+                .child(radio("ring-radio", "Automatic", true, cx).track_focus(&self.focus[1]))
+                .child(switch("ring-switch", "Wi-Fi", true, cx).track_focus(&self.focus[2]))
+                .child(
+                    button("ring-button", "Apply", ButtonVariant::Secondary, cx)
+                        .track_focus(&self.focus[3])
+                        .debug_selector(|| "ring-button".into()),
+                )
+                .child(
+                    toggle("ring-toggle", "Bold", false, cx)
+                        .track_focus(&self.focus[4])
+                        .debug_selector(|| "ring-toggle".into()),
+                )
+                .child(
+                    tabs("ring-tabs", cx).child(
+                        tab("ring-tab", "General", true, cx)
+                            .track_focus(&self.focus[5])
+                            .debug_selector(|| "ring-tab".into()),
+                    ),
+                )
+                .child(
+                    crate::accordion_trigger("ring-accordion", "Details", false, cx)
+                        .track_focus(&self.focus[6])
+                        .w(rems(12.))
+                        .debug_selector(|| "ring-accordion".into()),
+                )
+                .child(
+                    crate::input("ring-field", &self.field, window, cx)
+                        .w(rems(10.))
+                        .debug_selector(|| "ring-field".into()),
+                )
+        }
+    }
+
+    fn rings(cx: &mut VisualTestContext) -> Vec<gpui_kit::Quad> {
+        cx.update(|window, cx| crate::state::painted_rings(window, cx.macos()))
+    }
+
+    /// Spec §6.3 (C15, D4): one 3 pt ring outset 3 pt around the box, circle,
+    /// track or whole control, corner radius + 3, at 100% and 200% zoom;
+    /// keyboard focus in an active window only (fields: any focus), and no
+    /// accent border.
+    #[gpui_kit::test]
+    fn focus_rings_surround_the_native_scope_for_keyboard_focus_only(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            crate::init(cx);
+            cx.set_reduce_motion(true);
+        });
+        let (view, cx) = cx.add_window_view(|window, cx| RingHarness {
+            focus: (0..7).map(|_| cx.focus_handle()).collect(),
+            field: cx.new(|cx| gpui_kit::base::input::InputState::new(window, cx)),
+        });
+        let redraw = |cx: &mut VisualTestContext| {
+            view.update(cx, |_, cx| cx.notify());
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+        };
+        for (theme, zoom) in [
+            (crate::Theme::light(), 1.),
+            (crate::Theme::dark(), 1.),
+            (crate::Theme::light(), 2.),
+        ] {
+            cx.update(|window, cx| {
+                theme.clone().apply(cx);
+                window.set_rem_size(gpui_kit::px(16. * zoom));
+                window.activate_window();
+            });
+            cx.run_until_parked();
+            // (focus index, ringed element, its size in points, radius in points)
+            for (index, selector, size, radius) in [
+                (0, "macos-checkbox-indicator-ring-checkbox", (16., 16.), 5.5),
+                (1, "macos-radio-indicator-ring-radio", (16., 16.), 8.),
+                (2, "macos-switch-track-ring-switch", (54., 24.), 12.),
+                (3, "ring-button", (0., 24.), 6.),
+                (4, "ring-toggle", (0., 24.), 6.),
+                (5, "ring-tab", (0., 22.), 5.),
+                (6, "ring-accordion", (192., 36.), 8.),
+                (7, "ring-field", (160., 24.), 6.),
+            ] {
+                let field = index == 7;
+                if field {
+                    let state = view.read_with(cx, |view, _| view.field.clone());
+                    cx.update(|window, cx| state.update(cx, |state, cx| state.focus(window, cx)));
+                } else {
+                    let focus = view.read_with(cx, |view, _| view.focus[index].clone());
+                    cx.update(|window, cx| window.focus(&focus, cx));
+                }
+                cx.simulate_mouse_move(
+                    gpui_kit::point(gpui_kit::px(900.), gpui_kit::px(900.)),
+                    None,
+                    Default::default(),
+                );
+                redraw(cx);
+                // Pointer-driven focus rings only fields.
+                assert_eq!(
+                    rings(cx).len(),
+                    usize::from(field),
+                    "{selector}: pointer focus"
+                );
+                cx.simulate_keystrokes("x");
+                redraw(cx);
+                let target = cx.debug_bounds(selector).expect(selector);
+                let close = |a: f32, b: f32| (a - b).abs() <= 0.5;
+                assert!(
+                    close(target.size.height.as_f32(), size.1 * zoom)
+                        && (size.0 == 0. || close(target.size.width.as_f32(), size.0 * zoom)),
+                    "{selector} at {zoom}: {target:?}"
+                );
+                let painted = rings(cx);
+                assert_eq!(painted.len(), 1, "{selector} at {zoom}: exactly one ring");
+                cx.update(|window, _| {
+                    let scale = window.scale_factor();
+                    let ring = &painted[0];
+                    let expected = target.dilate(gpui_kit::px(3. * zoom)).scale(scale);
+                    let near =
+                        |a: gpui_kit::ScaledPixels, b: gpui_kit::ScaledPixels| close(a.0, b.0);
+                    assert!(
+                        near(ring.bounds.origin.x, expected.origin.x)
+                            && near(ring.bounds.origin.y, expected.origin.y)
+                            && near(ring.bounds.size.width, expected.size.width)
+                            && near(ring.bounds.size.height, expected.size.height),
+                        "{selector} at {zoom}: {:?} vs {expected:?}",
+                        ring.bounds
+                    );
+                    assert!(
+                        close(ring.border_widths.top.0, 3. * zoom * scale),
+                        "{selector} width"
+                    );
+                    assert!(
+                        close(ring.corner_radii.top_left.0, (radius + 3.) * zoom * scale),
+                        "{selector} radius {:?}",
+                        ring.corner_radii
+                    );
+                    assert_eq!(ring.background.as_solid().map_or(0., |fill| fill.a), 0.);
+                    // No accent border on the control itself.
+                    let control = target.scale(scale);
+                    assert!(
+                        window
+                            .painted_quads()
+                            .into_iter()
+                            .filter(|quad| quad.bounds == control)
+                            .all(|quad| quad.border_color != theme.accent),
+                        "{selector}: no accent border while focused"
+                    );
+                });
+                cx.deactivate_window();
+                redraw(cx);
+                assert!(
+                    rings(cx).is_empty(),
+                    "{selector}: no ring in an inactive window"
+                );
+                cx.update(|window, _| window.activate_window());
+                cx.run_until_parked();
+            }
+            // Checkbox box ring 22 × 22, switch capsule 60 × 30 (spec §6.3).
+            let focus = view.read_with(cx, |view, _| view.focus[0].clone());
+            cx.update(|window, cx| window.focus(&focus, cx));
+            cx.simulate_keystrokes("x");
+            redraw(cx);
+            let scale = cx.update(|window, _| window.scale_factor());
+            let ring = rings(cx)[0].bounds.size;
+            assert_eq!(
+                (ring.width.0, ring.height.0),
+                (22. * zoom * scale, 22. * zoom * scale)
+            );
+            let focus = view.read_with(cx, |view, _| view.focus[2].clone());
+            cx.update(|window, cx| window.focus(&focus, cx));
+            redraw(cx);
+            let ring = rings(cx)[0].bounds.size;
+            assert_eq!(
+                (ring.width.0, ring.height.0),
+                (60. * zoom * scale, 30. * zoom * scale)
+            );
+        }
     }
 }

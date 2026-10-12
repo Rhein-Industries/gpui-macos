@@ -1,3 +1,7 @@
+// Modified by gpui-macos contributors in 2026: a fully transparent hover token keeps the resting background.
+// Original: longbridge/gpui-kit 0bbd9870ce420af9feacbf948b21d3824d82dc0b.
+// Copyright 2024-2026 Longbridge; Apache-2.0. See LICENSE-APACHE and MACOS-PATCH.md.
+
 use gpui_base::TestSupportExt as _;
 use std::{ops::Range, rc::Rc, time::Duration};
 
@@ -2064,8 +2068,13 @@ where
                 })
                 .when(is_stripe_row, |this| this.bg(cx.theme().tokens.table_even))
                 .refine_style(&style)
+                // A fully transparent hover token means "no hover": the
+                // resting background (selection, stripes) is kept.
                 .hover(|this| {
-                    if is_selected || self.right_clicked_row == Some(row_ix) {
+                    if is_selected
+                        || self.right_clicked_row == Some(row_ix)
+                        || cx.theme().tokens.table_hover.color.a == 0.
+                    {
                         this
                     } else {
                         this.bg(cx.theme().tokens.table_hover)

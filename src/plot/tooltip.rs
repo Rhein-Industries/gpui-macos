@@ -134,11 +134,11 @@ impl CrossLine {
     /// solid band fills a `thickness`-wide strip centered on the data point.
     fn line(&self, vertical: bool, cx: &App) -> Div {
         let t = cx.macos();
-        // A dashed crosshair takes the control edge; a band takes the hover fill.
+        // A dashed crosshair takes the control edge; a band takes a tertiary fill.
         let color = if self.dashed {
             t.control_border()
         } else {
-            t.hover_fill()
+            t.tertiary_fill()
         };
         // The dashed hairline is a zero-width strip drawn entirely by its 1px border.
         let thickness = if self.dashed { px(0.) } else { self.thickness };

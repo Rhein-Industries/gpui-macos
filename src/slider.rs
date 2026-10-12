@@ -16,7 +16,8 @@ use gpui_kit::{
 };
 use std::time::Duration;
 
-/// A subtle enlargement helps identify the thumb under the pointer.
+/// The knob grows slightly while the pointer drags it. It does not respond
+/// to hover (spec §6.5, C17).
 const HOT_KNOB_SCALE: f32 = 1.06;
 /// The native resting thumb is a 20 × 16 pill, spec §4.5 (in rems).
 const KNOB_WIDTH: f32 = SLIDER_KNOB.0 / 16.;
@@ -133,14 +134,9 @@ pub fn slider(
             .read(cx)
             .clone();
         let edge = if start { "start" } else { "end" };
-        let hovered = window
-            .use_keyed_state(
-                (ElementId::from(("macos-slider-hover", id)), edge),
-                cx,
-                |_, _| false,
-            )
-            .clone();
-        let hot = active && !disabled && (*hovered.read(cx) || *pointer.read(cx));
+        let hot = active && !disabled && *pointer.read(cx);
+        // Spec §6.3: the ring surrounds the knob only (about 26 × 22).
+        let ring = !disabled && crate::state::focus_visible(&focus, window);
         let scale = transition(
             (ElementId::from(("macos-slider-knob", id)), edge),
             if hot { HOT_KNOB_SCALE } else { 1. },
@@ -181,20 +177,14 @@ pub fn slider(
                 .border_color(t.foreground.opacity(0.))
                 .bg(paint(PaintRole::Slider, Part::Knob, states, &t))
                 .shadow(t.control_shadow())
+                // Follows the knob's final size, radius and one-pixel border.
+                .when(ring, |mut thumb| {
+                    let ring = crate::state::focus_ring_for(thumb.style(), window, &t);
+                    thumb.child(ring)
+                })
                 .when(!disabled, |thumb| {
                     thumb
                         .track_focus(&focus)
-                        .when(active, |thumb| {
-                            thumb.focus_visible(|s| {
-                                s.border_color(t.accent).shadow(t.focus_shadow())
-                            })
-                        })
-                        .on_hover(move |hover, _, cx| {
-                            hovered.update(cx, |hovered, cx| {
-                                *hovered = *hover;
-                                cx.notify();
-                            })
-                        })
                         .on_mouse_down(MouseButton::Left, move |_, window, cx| {
                             knob_press.update(cx, |pressed, _| *pressed = true);
                             pointer_focus.focus(window, cx)
@@ -335,8 +325,9 @@ mod tests {
             (released - pressed).abs() < 0.5,
             "releasing does not move the knob"
         );
-        // Still hot while hovered; it settles once the pointer leaves.
-        cx.simulate_mouse_move(point(px(0.), px(200.)), None, Modifiers::default());
+        // No hover growth (spec §6.5, C17): it settles on release while the
+        // pointer still rests on it.
+        cx.simulate_mouse_move(target, None, Modifiers::default());
         knob_center(cx);
         cx.executor().advance_clock(SLIDER_KNOB_SCALE * 2);
         knob_center(cx);

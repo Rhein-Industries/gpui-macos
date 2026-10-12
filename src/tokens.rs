@@ -168,6 +168,43 @@ const LINK: [u32; 2] = [0x0068da, 0x419cff];
 /// Switch knob shadow ink (light / dark), tuned toward the measured darkening
 /// of about 6/255 below the knob, spec §6.2.7 (C19; estimate).
 const SWITCH_KNOB_SHADOW: [f32; 2] = [0.05, 0.2];
+/// `focus_ring_control` (light / dark) for the default accent, spec §2B. Fields
+/// use the same colour (plan D4, a deliberate approximation of
+/// `focus_ring_field`).
+const FOCUS_RING: [u32; 2] = [0x0c6bfb, 0x25afff];
+/// `focus_ring_control` alpha, spec §2B.
+const FOCUS_RING_ALPHA: f32 = 0.49;
+/// Focus ring width and outset in points, spec §6.3 (C15). The outer corner
+/// is the control radius plus the outset.
+pub(crate) const FOCUS_RING_WIDTH: f32 = 3.;
+pub(crate) const FOCUS_RING_OUTSET: f32 = 3.;
+/// `selected_content` (light / dark), spec §2A.3 and §6.4.
+const SELECTED_CONTENT: [u32; 2] = [0x0064e1, 0x0059d1];
+/// `unemphasized_selected_content` (light / dark), spec §2A.3 and §6.4.
+const UNEMPHASIZED_SELECTED_CONTENT: [u32; 2] = [0xdcdcdc, 0x464646];
+/// `alternating_row`: light #F4F5F5, dark white @0.047, spec §2A.2.
+const ALTERNATING_ROW_LIGHT: u32 = 0xf4f5f5;
+const ALTERNATING_ROW_DARK_ALPHA: f32 = 0.047;
+/// `tertiary_system_fill` ink alpha, spec §2A.2.
+const TERTIARY_FILL: f32 = 0.047;
+/// Sidebar row selection, spec §6.4 (C20): unfocused key window ink alpha
+/// over the material (light / dark).
+pub(crate) const SIDEBAR_UNEMPHASIZED: [f32; 2] = [0.085, 0.088];
+/// Sidebar row selection in an inactive window: opaque (light / dark), on
+/// the opaque #F0F0F0 / #282828 material, spec §6.4 and §7.2 (C20).
+pub(crate) const SIDEBAR_INACTIVE: [u32; 2] = [0xe5e5e5, 0x363636];
+/// Reduce Transparency sidebar selection (unfocused key, inactive) per
+/// appearance (light, dark), spec §6.4 (Sim).
+pub(crate) const SIDEBAR_RT: [[u32; 2]; 2] = [[0xdfdfdf, 0xe1e1e1], [0x545454, 0x232323]];
+/// Sidebar material in an active window (light / dark): `visualEffect.sidebar`
+/// tint and opacity, spec §7.1.
+pub(crate) const SIDEBAR_MATERIAL: [(u32, f32); 2] = [(0xe7e7e7, 0.898), (0x2c2c2c, 0.816)];
+/// Sidebar material in an inactive window: opaque (light / dark), spec §7.2 (C20, C29).
+pub(crate) const SIDEBAR_MATERIAL_INACTIVE: [u32; 2] = [0xf0f0f0, 0x282828];
+/// Reduce Transparency sidebar (active, inactive) per appearance, spec §7.6 (Sim).
+pub(crate) const SIDEBAR_MATERIAL_RT: [[u32; 2]; 2] = [[0xf6f6f6, 0xececec], [0x383838, 0x141414]];
+/// Toolbar item hover disc ink alpha (light / dark), spec §6.5 (C17, C28).
+pub(crate) const TOOLBAR_HOVER: [f32; 2] = [0.05, 0.04];
 /// Disabled dimming kept only for `PaintRole::Custom` buttons and adapters
 /// that paint their own look until M4/M5 give them roles (plan D6).
 pub(crate) const CUSTOM_DISABLED_OPACITY: f32 = 0.45;
@@ -234,6 +271,62 @@ impl Theme {
         } else {
             self.accent
         }
+    }
+    /// Keyboard focus ring, spec §2B `focus_ring_control` (about #0C6BFB /
+    /// #25AFFF @0.49), used for controls and fields alike (plan D4). A custom
+    /// accent is used at the same alpha (plan D7).
+    pub fn focus_ring(&self) -> Hsla {
+        let tint = if self.has_default_accent() {
+            rgb(FOCUS_RING[usize::from(self.is_dark())]).into()
+        } else {
+            self.accent
+        };
+        tint.opacity(FOCUS_RING_ALPHA)
+    }
+    /// Emphasized list and table selection, spec §2A.3 `selected_content`
+    /// (#0064E1 / #0059D1). A custom accent is used as is (plan D7).
+    pub fn selected_content(&self) -> Hsla {
+        if self.has_default_accent() {
+            rgb(SELECTED_CONTENT[usize::from(self.is_dark())]).into()
+        } else {
+            self.accent
+        }
+    }
+    /// Unemphasized list and table selection, spec §2A.3
+    /// `unemphasized_selected_content` (#DCDCDC / #464646).
+    pub fn unemphasized_selected_content(&self) -> Hsla {
+        rgb(UNEMPHASIZED_SELECTED_CONTENT[usize::from(self.is_dark())]).into()
+    }
+    /// The second alternating row background, spec §2A.2 `alternating_row`
+    /// (#F4F5F5 / white @0.047).
+    pub fn alternating_row(&self) -> Hsla {
+        if self.is_dark() {
+            ink(self).opacity(ALTERNATING_ROW_DARK_ALPHA)
+        } else {
+            rgb(ALTERNATING_ROW_LIGHT).into()
+        }
+    }
+    /// The sidebar material as a deterministic paint, spec §7.1, §7.2 and
+    /// §7.6 (C20, C29): #E7E7E7 @0.898 / #2C2C2C @0.816 in an active window,
+    /// opaque #F0F0F0 / #282828 in an inactive one, and #F6F6F6 / #383838
+    /// (active), #ECECEC / #141414 (inactive) under Reduce Transparency.
+    /// [`crate::sidebar`] paints it when real glass is unavailable; use it for
+    /// a sidebar placed over opaque content, where the glass cannot show.
+    pub fn sidebar_material(&self, window_active: bool) -> Hsla {
+        let dark = usize::from(self.is_dark());
+        let opaque = |hex: u32| -> Hsla { rgb(hex).into() };
+        match (self.reduce_transparency, window_active) {
+            (true, active) => opaque(SIDEBAR_MATERIAL_RT[dark][usize::from(!active)]),
+            (false, false) => opaque(SIDEBAR_MATERIAL_INACTIVE[dark]),
+            (false, true) => {
+                let (tint, alpha) = SIDEBAR_MATERIAL[dark];
+                opaque(tint).opacity(alpha)
+            }
+        }
+    }
+    /// `tertiary_system_fill`, ink @0.047, spec §2A.2.
+    pub fn tertiary_fill(&self) -> Hsla {
+        ink(self).opacity(TERTIARY_FILL)
     }
     /// Semantic tertiary label, spec §2A.1; used for disabled control labels (§8.2).
     pub fn tertiary_label(&self) -> Hsla {
@@ -308,6 +401,36 @@ mod tests {
         assert_eq!(TABLE_HEADER_HEIGHT, 27.);
         assert_eq!(TABLE_SEPARATOR, 1.);
         assert_eq!((INSET_LIST_ROW_HEIGHT, SIDEBAR_IDEAL_WIDTH), (40., 220.));
+    }
+    #[test]
+    fn focus_and_selection_tokens_match_spec_2a_2b() {
+        let close = |actual: Hsla, hex: u32, alpha: f32| {
+            let expected = gpui_kit::Rgba::from(Hsla::from(rgb(hex)));
+            let actual_rgb = gpui_kit::Rgba::from(actual);
+            for (a, e) in [
+                (actual_rgb.r, expected.r),
+                (actual_rgb.g, expected.g),
+                (actual_rgb.b, expected.b),
+            ] {
+                assert!((a - e).abs() * 255. <= 2., "{actual:?} vs #{hex:06X}");
+            }
+            assert!((actual.a - alpha).abs() <= 0.01, "{actual:?} alpha");
+        };
+        let (light, dark) = (Theme::light(), Theme::dark());
+        close(light.focus_ring(), 0x0c6bfb, 0.49);
+        close(dark.focus_ring(), 0x25afff, 0.49);
+        close(light.selected_content(), 0x0064e1, 1.);
+        close(dark.selected_content(), 0x0059d1, 1.);
+        close(light.unemphasized_selected_content(), 0xdcdcdc, 1.);
+        close(dark.unemphasized_selected_content(), 0x464646, 1.);
+        close(light.alternating_row(), 0xf4f5f5, 1.);
+        close(dark.alternating_row(), 0xffffff, 0.047);
+        assert_eq!(light.tertiary_fill(), Hsla::black().opacity(0.047));
+        assert_eq!((FOCUS_RING_WIDTH, FOCUS_RING_OUTSET), (3., 3.));
+        let custom = light.clone().with_accent(rgb(0x34a853).into());
+        assert_eq!(custom.focus_ring(), custom.accent.opacity(0.49));
+        assert_eq!(light.tokens().ring, light.focus_ring(), "Base ring");
+        assert_eq!(light.focus_shadow()[0].color, light.focus_ring());
     }
     #[test]
     fn disabled_values_match_spec() {

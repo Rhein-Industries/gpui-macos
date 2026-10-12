@@ -344,7 +344,7 @@ pub fn avatar(initials: impl Into<SharedString>, cx: &App) -> gpui_kit::base::Av
         .rounded_full()
         .border_1()
         .border_color(t.control_border())
-        .bg(t.hover_fill())
+        .bg(t.tertiary_fill())
         .font_family(t.font.clone())
         .native_text_style(crate::TextStyle::Callout, cx.macos())
         .text_color(t.foreground)

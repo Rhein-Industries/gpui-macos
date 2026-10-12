@@ -6,7 +6,8 @@ use crate::tokens::{SWITCH_INSET, SWITCH_KNOB, SWITCH_TRACK, pt};
 use gpui_kit::base::motion::transition;
 use gpui_kit::base::{SwitchThumb, SwitchTrack};
 use gpui_kit::{
-    App, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce, Styled, Window, div,
+    App, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce, Styled, Window,
+    div, prelude::FluentBuilder as _,
 };
 
 /// Native 54 × 24 track, 32 × 20 pill, and two-point inset (spec §4.5).
@@ -20,6 +21,7 @@ pub(crate) struct SwitchMotion {
     checked: bool,
     disabled: bool,
     pressed: bool,
+    focus_visible: bool,
 }
 
 impl SwitchMotion {
@@ -29,12 +31,19 @@ impl SwitchMotion {
             checked,
             disabled: false,
             pressed: false,
+            focus_visible: false,
         }
     }
 
     /// A left-button press anywhere on the switch (§6.2.7 P).
     pub(crate) fn pressed(mut self, pressed: bool) -> Self {
         self.pressed = pressed;
+        self
+    }
+
+    /// Keyboard focus in an active window: the ring surrounds the track (§6.3).
+    pub(crate) fn focus_visible(mut self, visible: bool) -> Self {
+        self.focus_visible = visible;
         self
     }
 
@@ -92,6 +101,7 @@ impl RenderOnce for SwitchMotion {
             .h(pt(SWITCH_TRACK.1))
             .flex_shrink_0()
             .p(pt(SWITCH_INSET))
+            .relative()
             .rounded_full()
             .bg(track_bg)
             .debug_selector({
@@ -112,6 +122,10 @@ impl RenderOnce for SwitchMotion {
                             .debug_selector(move || format!("macos-switch-thumb-{id}")),
                     ),
             )
+            // Spec §6.3: a capsule ring around the track (60 × 30).
+            .when(self.focus_visible, |track| {
+                track.child(crate::state::focus_ring_pt(SWITCH_TRACK.1 / 2., window, &t))
+            })
     }
 }
 

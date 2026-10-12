@@ -1,4 +1,4 @@
-// Modified by gpui-macos contributors in 2026: render-time control state children.
+// Modified by gpui-macos contributors in 2026: render-time control state children, keyboard focus visibility and a group focus indicator.
 // Original: longbridge/gpui-kit 0bbd9870ce420af9feacbf948b21d3824d82dc0b.
 // Copyright 2024-2026 Longbridge; Apache-2.0. See LICENSE-APACHE and MACOS-PATCH.md.
 
@@ -35,6 +35,7 @@ pub struct Radio {
     tab_index: isize,
     tab_stop: bool,
     provided_focus_handle: Option<FocusHandle>,
+    focus_indicator: Option<FocusHandle>,
     position_in_set: Option<usize>,
     size_of_set: Option<usize>,
 }
@@ -71,13 +72,25 @@ impl Radio {
     }
 
     /// Adds a child built with the final render-time control state.
-    /// `focus_visible` is currently false; focus producers are added separately.
+    /// `focus_visible` is true while the control shows keyboard focus.
     pub fn child_with_state<E: IntoElement>(
         mut self,
         build: impl FnOnce(crate::ControlState) -> E + 'static,
     ) -> Self {
         self.children
             .push(crate::state_child::StateChild::state(build));
+        self
+    }
+
+    /// Adds a child built with the final render-time control state and the
+    /// control's final resolved style (defaults beneath caller styles), for
+    /// example a focus ring that follows the control's radius and border.
+    pub fn child_with_resolved_style<E: IntoElement>(
+        mut self,
+        build: impl FnOnce(crate::ControlState, &StyleRefinement) -> E + 'static,
+    ) -> Self {
+        self.children
+            .push(crate::state_child::StateChild::styled(build));
         self
     }
     pub fn new(id: impl Into<ElementId>) -> Self {
@@ -95,6 +108,7 @@ impl Radio {
             tab_index: 0,
             tab_stop: true,
             provided_focus_handle: None,
+            focus_indicator: None,
             position_in_set: None,
             size_of_set: None,
         }
@@ -165,6 +179,15 @@ impl Radio {
         self
     }
 
+    /// Also reports keyboard focus on `focus_handle` as this radio's
+    /// `ControlState::focus_visible`, without tracking the handle on the
+    /// radio. For a group that owns one focus handle and moves a cursor
+    /// between its options: pass the group's handle to the current option.
+    pub fn focus_indicator(mut self, focus_handle: &FocusHandle) -> Self {
+        self.focus_indicator = Some(focus_handle.clone());
+        self
+    }
+
     /// Sets this radio's one-based position and its group's total size, so
     /// assistive technology can announce "option 2 of 5".
     pub fn set_position(mut self, position: usize, size: usize) -> Self {
@@ -224,6 +247,15 @@ impl RenderOnce for Radio {
         let checked = self.checked;
         let press = crate::state_child::press_state(&self.id, disabled, window, cx);
         let pressed = *press.read(cx);
+        let control_state = crate::ControlState::new(disabled, checked)
+            .with_pressed(pressed)
+            .with_focus(Some(&focus_handle), window);
+        let control_state = match &self.focus_indicator {
+            Some(indicator) if !control_state.focus_visible => {
+                control_state.with_focus(Some(indicator), window)
+            }
+            _ => control_state,
+        };
         let style = self.resolved_style();
         let on_change = self.on_change;
 
@@ -264,9 +296,11 @@ impl RenderOnce for Radio {
                     })
                 },
             )
-            .children(self.children.into_iter().map(|child| {
-                child.resolve(crate::ControlState::new(disabled, checked).with_pressed(pressed))
-            }))
+            .children(
+                self.children
+                    .into_iter()
+                    .map(|child| child.resolve(control_state, &style)),
+            )
             .refine_style(&style)
     }
 }

@@ -1,3 +1,7 @@
+// Modified by gpui-macos contributors in 2026: a fully transparent hover token keeps the resting background.
+// Original: longbridge/gpui-kit 0bbd9870ce420af9feacbf948b21d3824d82dc0b.
+// Copyright 2024-2026 Longbridge; Apache-2.0. See LICENSE-APACHE and MACOS-PATCH.md.
+
 use crate::{ActiveTheme, Disableable, Icon, Selectable, Sizable as _, StyledExt, h_flex};
 use gpui::{
     AnyElement, App, ClickEvent, Div, ElementId, InteractiveElement, Interactivity, IntoElement,
@@ -224,8 +228,10 @@ impl RenderOnce for ListItem {
                     })
                     // Register `hover` unconditionally, a conditional registration
                     // leaves a stale hover style behind when the item turns active.
+                    // A fully transparent hover token means "no hover": the
+                    // resting background (selection, stripes) is kept.
                     .hover(|this| {
-                        if is_active {
+                        if is_active || cx.theme().tokens.list_hover.color.a == 0. {
                             this
                         } else {
                             this.bg(cx.theme().tokens.list_hover)

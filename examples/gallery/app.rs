@@ -2247,12 +2247,13 @@ impl Gallery {
                     .tab_stop(false)
                     .when(
                         self.radio_focus.is_focused(window) && self.choice == index,
-                        |row| {
-                            row.aria_active_descendant()
-                                .bg(theme.hover_fill())
-                                .border_color(theme.focus_border())
-                        },
+                        |row| row.aria_active_descendant(),
                     )
+                    // The group owns focus: its keyboard focus rings the
+                    // current option's circle in an active window (spec §6.3).
+                    .when(self.choice == index, |row| {
+                        row.focus_indicator(&self.radio_focus)
+                    })
                     .debug_selector(move || format!("density-option-{index}"))
                     .on_change(change(cx.listener(move |this, _, window, cx| {
                         this.choice = index;
@@ -3376,7 +3377,7 @@ impl Render for Gallery {
             .child(
                 gpui_kit::list(self.navigation_list.clone(), {
                     let view = cx.entity();
-                    move |index, _, cx| {
+                    move |index, window, cx| {
                         view.update(cx, |this, cx| {
                             let (header, name) = this.navigation_rows[index];
                             let t = cx.macos().clone();
@@ -3401,7 +3402,6 @@ impl Render for Gallery {
                                 .border_0()
                                 .shadow_none()
                                 .bg(t.foreground.opacity(0.))
-                                .hover(|style| style.bg(t.hover_fill()))
                                 .active(|style| style.bg(t.pressed_fill()))
                                 .text_size(rems(0.6875))
                                 .font_weight(FontWeight::SEMIBOLD)
@@ -3435,6 +3435,11 @@ impl Render for Gallery {
                                         cx,
                                     )
                                     .debug_selector(move || format!("navigation-row-{name}"))
+                                    // Spec §6.4 (C20): the sidebar is emphasized
+                                    // while it holds keyboard focus.
+                                    .selection_emphasis(
+                                        this.navigation_focus.contains_focused(window, cx),
+                                    )
                                     .border_0()
                                     .focusable(false)
                                     .on_click(cx.listener(

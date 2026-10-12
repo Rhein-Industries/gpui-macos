@@ -4,7 +4,7 @@ use crate::NativeTextStyle as _;
 use crate::tokens::{ROW_HEIGHT, ROW_PADDING_Y, TABLE_HEADER_HEIGHT, TABLE_SEPARATOR, pt};
 use gpui_kit::base::{Table, TableCell, TableHead, TableRow};
 use gpui_kit::rems;
-use gpui_kit::{App, ElementId, FontWeight, InteractiveElement, Styled, prelude::FluentBuilder};
+use gpui_kit::{App, ElementId, FontWeight, Styled, prelude::FluentBuilder};
 
 pub fn table(id: impl Into<ElementId>, cx: &App) -> Table {
     let t = cx.macos();
@@ -18,15 +18,17 @@ pub fn table(id: impl Into<ElementId>, cx: &App) -> Table {
 }
 
 /// `index` is the one-based accessibility row index, including the header.
-/// Alternating content rows use the standard subtle background fill.
+/// Alternating content rows use `alternating_row` (spec §2A.2). Rows have no
+/// hover (§6.5, C17); paint a selected row with [`crate::row_selection`].
 /// Body rows are 24 pt (spec §5.2, C16).
 pub fn table_row(id: impl Into<ElementId>, index: usize, cx: &App) -> TableRow {
     let t = cx.macos();
     TableRow::new(id, index)
         .flex()
         .min_h(pt(ROW_HEIGHT))
-        .when(index > 1 && index % 2 == 1, |row| row.bg(t.normal_fill()))
-        .hover(|s| s.bg(t.hover_fill()))
+        .when(index > 1 && index % 2 == 1, |row| {
+            row.bg(t.alternating_row())
+        })
 }
 
 /// `index` is the one-based accessibility column index.
@@ -68,7 +70,10 @@ pub fn table_cell(id: impl Into<ElementId>, index: usize, _cx: &App) -> TableCel
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gpui_kit::{Context, IntoElement, ParentElement, Render, TestAppContext, Window, div, px};
+    use gpui_kit::{
+        Context, InteractiveElement, IntoElement, ParentElement, Render, TestAppContext, Window,
+        div, px,
+    };
 
     const LABEL: &str = "A very long column title that cannot fit in its header cell";
 

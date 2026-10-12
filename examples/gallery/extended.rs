@@ -220,10 +220,17 @@ impl Extended {
                     .child(note(self.command_result.clone(), cx));
             }
             "sidebar" => {
-                let mut shell = sidebar("sidebar-preview", cx).h(rems(19.)).rounded(rems(0.75));
+                // One material owner. With real glass the sidebar's glass sits under
+                // this opaque page, so the shell paints the deterministic material;
+                // without it, sidebar() already paints that material itself.
+                let native_glass = gpui_macos::native::glass_available(window) && !cx.macos().reduce_transparency;
+                let mut shell = sidebar("sidebar-preview", cx).h(rems(19.)).rounded(rems(0.75))
+                    .when(native_glass, |shell| shell.bg(cx.macos().sidebar_material(window.is_window_active())));
                 shell = shell.child(sidebar_section("Favorites", cx));
                 for (index, (name, symbol)) in [("Recents", IconName::Clock), ("Documents", IconName::File), ("Shared", IconName::Users)].into_iter().enumerate() {
-                    shell = shell.child(sidebar_item(("native-sidebar-row", index), name, symbol, self.selected_row == index, cx).on_click(cx.listener(move |this, _, _, cx| { this.extended.selected_row = index; cx.notify(); })));
+                    shell = shell.child(sidebar_item(("native-sidebar-row", index), name, symbol, self.selected_row == index, cx)
+                        // This demo list never holds keyboard focus: unemphasized selection (spec §6.4).
+                        .selection_emphasis(false).on_click(cx.listener(move |this, _, _, cx| { this.extended.selected_row = index; cx.notify(); })));
                 }
                 content = content.child(shell);
             }
@@ -381,7 +388,10 @@ impl Extended {
             "list" => {
                 let mut rows = div().w(rems(30.)).flex().flex_col().gap(rems(0.125));
                 for (index, label) in ["Project brief", "Meeting notes", "Design references"].into_iter().enumerate() {
-                    rows = rows.child(mac::list_item(("list-item", index), cx).debug_selector(move || format!("list-row-{index}")).selected(index == self.selected_row).child(div().flex().items_center().gap(rems(0.625)).child(icon(IconName::File)).child(div().debug_selector(move || format!("list-label-{index}")).child(label)))
+                    // Native list selection (spec §6.4): the list never holds keyboard focus, so it is unemphasized.
+                    let selected = index == self.selected_row;
+                    let (selected_fill, selected_text) = gpui_macos::row_selection(false, window, cx);
+                    rows = rows.child(mac::list_item(("list-item", index), cx).debug_selector(move || format!("list-row-{index}")).aria_selected(selected).when(selected, |row| row.bg(selected_fill).text_color(selected_text)).child(div().flex().items_center().gap(rems(0.625)).child(icon(IconName::File)).child(div().debug_selector(move || format!("list-label-{index}")).child(label)))
                         .on_click(cx.listener(move |this, _, _, cx| { this.extended.selected_row = index; cx.notify(); })));
                 }
                 content = content.child(rows).child(note(format!("Selected document {}", self.selected_row + 1), cx));

@@ -1,13 +1,18 @@
-//! Role × state paint from `docs/native-spec.md` §6.2.
+//! Role × state paint from `docs/native-spec.md` §6.2, the focus ring
+//! (§6.3), row selection (§6.4) and the hover rule (§6.5).
 //!
 //! Every arm is a measured value (or an explicit fallback for a cell marked
 //! **O**). States never compose by multiplication (§6): disabled, pressed and
 //! inactive-window combinations each have their own arm.
 use crate::Theme;
 use crate::tokens::{
-    disabled_bezel, disabled_control_fill, disabled_control_mark, disabled_switch_off, ink,
+    FOCUS_RING_OUTSET, FOCUS_RING_WIDTH, SIDEBAR_INACTIVE, SIDEBAR_RT, SIDEBAR_UNEMPHASIZED,
+    TOOLBAR_HOVER, disabled_bezel, disabled_control_fill, disabled_control_mark,
+    disabled_switch_off, ink, pt,
 };
-use gpui_kit::{Hsla, Window, rgb, transparent_black};
+use gpui_kit::{
+    Div, FocusHandle, Hsla, Pixels, StyleRefinement, Styled, Window, div, rgb, transparent_black,
+};
 
 /// Which tinted family a prominent bezel uses (§6.2.3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -16,6 +21,15 @@ pub(crate) enum Tint {
     Accent,
     /// `prominent_red`, the theme danger hue (`.tint(.red)`, C5).
     Red,
+}
+
+/// Which row family a row belongs to (spec §6.4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RowKind {
+    /// Source-list sidebar rows (C20).
+    Sidebar,
+    /// Lists, tables and trees.
+    List,
 }
 
 /// The paint family of a control part. `Custom` opts out of the resolver.
@@ -49,6 +63,36 @@ pub(crate) enum PaintRole {
     Link,
     /// The label beside a checkbox, radio or switch, and text-only rows (§6.2.10).
     ControlLabel,
+    /// A sidebar, list, table or tree row (§6.4). `emphasized` is true while
+    /// the row's list has keyboard focus (or the caller says so); an
+    /// inactive window is never emphasized. Rows have no hover (C17).
+    Row {
+        kind: RowKind,
+        selected: bool,
+        emphasized: bool,
+    },
+    /// A toolbar item: a hover disc and no bezel (§6.5, C17, C28).
+    ToolbarItem,
+    /// A menu, select or combobox popup row (D10). The highlight follows the
+    /// pointer and the keyboard cursor; its values are finalised in M5.
+    MenuItem { highlighted: bool },
+}
+
+impl PaintRole {
+    /// Whether keyboard focus draws the outset ring around this role's
+    /// control (§6.3). Rows and menu items show focus through selection and
+    /// highlight instead; `Custom` adapters draw their own.
+    pub(crate) const fn has_focus_ring(self) -> bool {
+        matches!(
+            self,
+            Self::Bezel
+                | Self::Prominent(_)
+                | Self::Borderless
+                | Self::ToggleOn
+                | Self::Segment { .. }
+                | Self::ToolbarItem
+        )
+    }
 }
 
 /// The painted part of a role.
@@ -79,6 +123,14 @@ impl States {
             disabled: false,
             pressed: false,
             window_active: true,
+        }
+    }
+
+    /// Enabled and at rest in an inactive window (columns IN, ID).
+    pub(crate) const fn inactive() -> Self {
+        Self {
+            window_active: false,
+            ..Self::active()
         }
     }
 
@@ -315,6 +367,79 @@ pub(crate) fn paint(role: PaintRole, part: Part, states: States, theme: &Theme) 
             false => label,
         },
 
+        // §6.4 rows (C20). Pressing a row does not change its paint.
+        (
+            PaintRole::Row {
+                selected: false, ..
+            },
+            Part::Fill,
+        ) => transparent_black(),
+        (
+            PaintRole::Row {
+                kind: RowKind::List,
+                emphasized,
+                ..
+            },
+            Part::Fill,
+        ) => match emphasized && active {
+            true => theme.selected_content(),
+            false => theme.unemphasized_selected_content(),
+        },
+        (
+            PaintRole::Row {
+                kind: RowKind::Sidebar,
+                emphasized,
+                ..
+            },
+            Part::Fill,
+        ) => {
+            let dark = usize::from(dark);
+            match (active && emphasized, active, theme.reduce_transparency) {
+                (true, _, _) => theme.accent,
+                (false, true, true) => color(SIDEBAR_RT[dark][0]),
+                (false, false, true) => color(SIDEBAR_RT[dark][1]),
+                (false, true, false) => ink.opacity(SIDEBAR_UNEMPHASIZED[dark]),
+                (false, false, false) => color(SIDEBAR_INACTIVE[dark]),
+            }
+        }
+        (
+            PaintRole::Row {
+                selected,
+                emphasized,
+                ..
+            },
+            Part::Label,
+        ) => match (disabled, selected && emphasized && active) {
+            (true, _) => theme.tertiary_label(),
+            (false, true) => white,
+            (false, false) => label,
+        },
+
+        // §6.5 toolbar items: no bezel at rest; the hover disc is `hover()`.
+        // Pressed is not measured (O): twice the hover ink.
+        (PaintRole::ToolbarItem, Part::Fill) => match (disabled, pressed) {
+            (false, true) => ink.opacity(TOOLBAR_HOVER[usize::from(dark)] * 2.),
+            _ => transparent_black(),
+        },
+        (PaintRole::ToolbarItem, Part::Label) => match disabled {
+            true => theme.tertiary_label(),
+            false => label,
+        },
+
+        // Menu rows keep the pre-M5 highlight: accent with a white label, and
+        // a neutral highlight in an inactive window (D10; M5 finalises it).
+        (PaintRole::MenuItem { highlighted: false }, Part::Fill) => transparent_black(),
+        (PaintRole::MenuItem { highlighted: true }, Part::Fill) => match active {
+            true => theme.accent,
+            false => theme
+                .control_fill()
+                .blend(label.opacity(if dark { 0.1 } else { 0.08 })),
+        },
+        (PaintRole::MenuItem { highlighted }, Part::Label) => match (highlighted, active) {
+            (true, true) => white,
+            _ => label,
+        },
+
         // Parts a role does not paint.
         (
             PaintRole::Bezel
@@ -327,7 +452,10 @@ pub(crate) fn paint(role: PaintRole, part: Part, states: States, theme: &Theme) 
             | PaintRole::SwitchKnob { .. }
             | PaintRole::Progress
             | PaintRole::Link
-            | PaintRole::ControlLabel,
+            | PaintRole::ControlLabel
+            | PaintRole::Row { .. }
+            | PaintRole::ToolbarItem
+            | PaintRole::MenuItem { .. },
             Part::Track | Part::Knob,
         )
         | (PaintRole::Segment { .. }, Part::Knob)
@@ -336,6 +464,110 @@ pub(crate) fn paint(role: PaintRole, part: Part, states: States, theme: &Theme) 
         | (PaintRole::Slider, Part::Label)
         | (PaintRole::Progress, Part::Label)
         | (PaintRole::Link | PaintRole::ControlLabel, Part::Fill) => transparent_black(),
+    }
+}
+
+/// The hover paint of a role (§6.5, C17), or `None` for the roles that do
+/// not respond to the pointer: bezels, indicators, fields, tabs, segments,
+/// rows, trees and tables. Toolbar items get an ink disc; menu rows get
+/// their highlight.
+pub(crate) fn hover(role: PaintRole, theme: &Theme) -> Option<Hsla> {
+    match role {
+        PaintRole::ToolbarItem => {
+            Some(ink(theme).opacity(TOOLBAR_HOVER[usize::from(theme.is_dark())]))
+        }
+        PaintRole::MenuItem { .. } => Some(paint(
+            PaintRole::MenuItem { highlighted: true },
+            Part::Fill,
+            States::active(),
+            theme,
+        )),
+        PaintRole::Custom
+        | PaintRole::Bezel
+        | PaintRole::Prominent(_)
+        | PaintRole::Borderless
+        | PaintRole::ToggleOn
+        | PaintRole::Segment { .. }
+        | PaintRole::CheckOff
+        | PaintRole::CheckOn
+        | PaintRole::SwitchTrack { .. }
+        | PaintRole::SwitchKnob { .. }
+        | PaintRole::Slider
+        | PaintRole::Progress
+        | PaintRole::Link
+        | PaintRole::ControlLabel
+        | PaintRole::Row { .. } => None,
+    }
+}
+
+/// Whether `focus` shows the keyboard focus ring (§6.3, C15): focused,
+/// reached by the keyboard, in an active window.
+pub(crate) fn focus_visible(focus: &FocusHandle, window: &Window) -> bool {
+    window.is_window_active() && focus.is_focused(window) && window.last_input_was_keyboard()
+}
+
+/// Whether a text field shows its focus ring (§6.3): focused in an active
+/// window. A field takes keyboard focus from a click as well.
+pub(crate) fn field_focused(focus: &FocusHandle, window: &Window) -> bool {
+    window.is_window_active() && focus.is_focused(window)
+}
+
+/// The keyboard focus ring (§6.3, plan D4): an absolutely positioned 3 pt
+/// band outset 3 pt from its parent's border box, whose corner is `radius`
+/// (the control's) plus the outset. `border` is the parent's border width,
+/// because absolute children are placed inside it. The parent must be a
+/// positioned element.
+pub(crate) fn focus_ring(radius: Pixels, border: Pixels, window: &Window, theme: &Theme) -> Div {
+    let outset = pt(FOCUS_RING_OUTSET).to_pixels(window.rem_size());
+    let inset = -(outset + border);
+    div()
+        .absolute()
+        .top(inset)
+        .left(inset)
+        .right(inset)
+        .bottom(inset)
+        .rounded(radius + outset)
+        .border(pt(FOCUS_RING_WIDTH))
+        .border_color(theme.focus_ring())
+}
+
+/// [`focus_ring`] around an element with `style`'s top-left corner radius
+/// and top border width.
+pub(crate) fn focus_ring_for(style: &StyleRefinement, window: &Window, theme: &Theme) -> Div {
+    let length = |length: Option<gpui_kit::AbsoluteLength>| {
+        length
+            .map(|length| length.to_pixels(window.rem_size()))
+            .unwrap_or_default()
+    };
+    focus_ring(
+        length(style.corner_radii.top_left),
+        length(style.border_widths.top),
+        window,
+        theme,
+    )
+}
+
+/// [`focus_ring`] for a borderless control with a radius in points.
+pub(crate) fn focus_ring_pt(radius: f32, window: &Window, theme: &Theme) -> Div {
+    focus_ring(
+        pt(radius).to_pixels(window.rem_size()),
+        Pixels::ZERO,
+        window,
+        theme,
+    )
+}
+
+/// The ring, or an empty out-of-flow placeholder, so a parent's gap and
+/// layout never change with focus.
+pub(crate) fn focus_ring_if(
+    visible: bool,
+    style: &StyleRefinement,
+    window: &Window,
+    theme: &Theme,
+) -> Div {
+    match visible {
+        true => focus_ring_for(style, window, theme),
+        false => div().absolute(),
     }
 }
 
@@ -355,6 +587,35 @@ pub(crate) fn over(bottom: Hsla, top: Hsla) -> Hsla {
         a: alpha,
     }
     .into()
+}
+
+/// Test support: painted focus rings, one entry per ring geometry.
+#[cfg(test)]
+pub(crate) fn painted_rings(window: &Window, theme: &Theme) -> Vec<gpui_kit::Quad> {
+    // GPUI paints one bordered quad as several pieces with the same bounds
+    // and different content masks; the same piece twice is a double ring.
+    let quads: Vec<_> = window
+        .painted_quads()
+        .into_iter()
+        .filter(|quad| quad.border_color == theme.focus_ring())
+        .collect();
+    for (index, quad) in quads.iter().enumerate() {
+        assert!(
+            !quads[..index]
+                .iter()
+                .any(|other| other.bounds == quad.bounds
+                    && other.content_mask.bounds == quad.content_mask.bounds),
+            "a ring is painted twice: {:?}",
+            quad.bounds
+        );
+    }
+    let mut rings: Vec<gpui_kit::Quad> = Vec::new();
+    for quad in quads {
+        if !rings.iter().any(|ring| ring.bounds == quad.bounds) {
+            rings.push(quad);
+        }
+    }
+    rings
 }
 
 #[cfg(test)]
@@ -772,6 +1033,185 @@ mod tests {
                 }
             }
             assert_eq!(paint(PaintRole::Custom, Part::Fill, rest(), &t).a, 0.);
+        }
+    }
+
+    const NO_HOVER_ROLES: [PaintRole; 16] = [
+        PaintRole::Custom,
+        PaintRole::Bezel,
+        PaintRole::Prominent(Tint::Accent),
+        PaintRole::Prominent(Tint::Red),
+        PaintRole::Borderless,
+        PaintRole::ToggleOn,
+        PaintRole::Segment { selected: false },
+        PaintRole::Segment { selected: true },
+        PaintRole::CheckOff,
+        PaintRole::CheckOn,
+        PaintRole::SwitchTrack { on: true },
+        PaintRole::SwitchKnob { on: false },
+        PaintRole::Slider,
+        PaintRole::Link,
+        PaintRole::Row {
+            kind: RowKind::Sidebar,
+            selected: true,
+            emphasized: true,
+        },
+        PaintRole::Row {
+            kind: RowKind::List,
+            selected: false,
+            emphasized: false,
+        },
+    ];
+
+    #[test]
+    fn hover_matches_6_5_and_c17() {
+        for t in [Theme::light(), Theme::dark()] {
+            for role in NO_HOVER_ROLES
+                .into_iter()
+                .chain([PaintRole::Progress, PaintRole::ControlLabel])
+            {
+                assert_eq!(hover(role, &t), None, "{role:?} has no hover");
+            }
+            let disc = if t.is_dark() { 0.04 } else { 0.05 };
+            assert_close(
+                hover(PaintRole::ToolbarItem, &t).unwrap(),
+                ink_at(&t, disc),
+                "toolbar disc",
+            );
+            assert_eq!(
+                hover(PaintRole::MenuItem { highlighted: false }, &t),
+                Some(t.accent),
+                "menu highlight"
+            );
+        }
+    }
+
+    #[test]
+    fn focus_ring_roles_match_6_3() {
+        for role in [
+            PaintRole::Bezel,
+            PaintRole::Prominent(Tint::Accent),
+            PaintRole::Borderless,
+            PaintRole::ToggleOn,
+            PaintRole::Segment { selected: true },
+            PaintRole::ToolbarItem,
+        ] {
+            assert!(role.has_focus_ring(), "{role:?}");
+        }
+        for role in [
+            PaintRole::Custom,
+            PaintRole::MenuItem { highlighted: true },
+            PaintRole::Row {
+                kind: RowKind::Sidebar,
+                selected: true,
+                emphasized: true,
+            },
+        ] {
+            assert!(!role.has_focus_ring(), "{role:?}");
+        }
+    }
+
+    #[test]
+    fn sidebar_rows_match_6_4_and_c20() {
+        let row = |selected, emphasized| PaintRole::Row {
+            kind: RowKind::Sidebar,
+            selected,
+            emphasized,
+        };
+        for t in [Theme::light(), Theme::dark()] {
+            let dark = t.is_dark();
+            let fill = |role, s| paint(role, Part::Fill, s, &t);
+            let label = |role, s| paint(role, Part::Label, s, &t);
+            // Focused key window: opaque accent with a white label.
+            assert_eq!(fill(row(true, true), rest()), t.accent);
+            assert_eq!(label(row(true, true), rest()), t.on_accent);
+            // Unfocused key window: black @0.085 / white @0.088 over the material.
+            assert_close(
+                fill(row(true, false), rest()),
+                ink_at(&t, if dark { 0.088 } else { 0.085 }),
+                "unemphasized key",
+            );
+            assert_eq!(label(row(true, false), rest()), t.foreground);
+            // Inactive window: opaque #E5E5E5 / #363636, emphasized or not.
+            for emphasized in [true, false] {
+                assert_close(
+                    fill(row(true, emphasized), inactive()),
+                    color(if dark { 0x363636 } else { 0xe5e5e5 }),
+                    "inactive",
+                );
+                assert_eq!(fill(row(true, emphasized), inactive()).a, 1.);
+                assert_eq!(label(row(true, emphasized), inactive()), t.foreground);
+            }
+            // Unselected rows stay clear; pressing changes nothing.
+            assert_eq!(fill(row(false, true), rest()).a, 0.);
+            assert_eq!(label(row(false, true), rest()), t.foreground);
+            assert_eq!(
+                fill(row(true, true), pressed()),
+                fill(row(true, true), rest())
+            );
+            assert_eq!(label(row(true, true), disabled()), t.tertiary_label());
+            // Reduce Transparency (Sim): #DFDFDF / #545454 and #E1E1E1 / #232323.
+            let rt = t.clone().with_reduce_transparency(true);
+            let (key, inactive_rt) = if dark {
+                (0x545454, 0x232323)
+            } else {
+                (0xdfdfdf, 0xe1e1e1)
+            };
+            assert_eq!(paint(row(true, false), Part::Fill, rest(), &rt), color(key));
+            assert_eq!(
+                paint(row(true, true), Part::Fill, inactive(), &rt),
+                color(inactive_rt)
+            );
+            assert_eq!(paint(row(true, true), Part::Fill, rest(), &rt), rt.accent);
+        }
+    }
+
+    #[test]
+    fn list_rows_match_6_4() {
+        let row = |emphasized| PaintRole::Row {
+            kind: RowKind::List,
+            selected: true,
+            emphasized,
+        };
+        for t in [Theme::light(), Theme::dark()] {
+            let dark = t.is_dark();
+            let emphasized = color(if dark { 0x0059d1 } else { 0x0064e1 });
+            let unemphasized = color(if dark { 0x464646 } else { 0xdcdcdc });
+            assert_eq!(paint(row(true), Part::Fill, rest(), &t), emphasized);
+            assert_eq!(paint(row(true), Part::Label, rest(), &t), t.on_accent);
+            for (role, s) in [
+                (row(false), rest()),
+                (row(true), inactive()),
+                (row(false), inactive()),
+            ] {
+                assert_eq!(paint(role, Part::Fill, s, &t), unemphasized);
+                assert_eq!(paint(role, Part::Label, s, &t), t.foreground);
+            }
+            let custom = t.clone().with_accent(color(0x34a853));
+            assert_eq!(
+                paint(row(true), Part::Fill, rest(), &custom),
+                custom.accent,
+                "custom accents select with the accent (D7)"
+            );
+        }
+    }
+
+    #[test]
+    fn toolbar_and_menu_items_route_through_their_roles() {
+        for t in [Theme::light(), Theme::dark()] {
+            let item = PaintRole::ToolbarItem;
+            assert_eq!(paint(item, Part::Fill, rest(), &t).a, 0.);
+            assert_eq!(paint(item, Part::Label, rest(), &t), t.foreground);
+            assert_eq!(paint(item, Part::Label, disabled(), &t), t.tertiary_label());
+            assert_eq!(paint(item, Part::Fill, disabled().pressed(true), &t).a, 0.);
+            let on = PaintRole::MenuItem { highlighted: true };
+            let off = PaintRole::MenuItem { highlighted: false };
+            assert_eq!(paint(on, Part::Fill, rest(), &t), t.accent);
+            assert_eq!(paint(on, Part::Label, rest(), &t), t.on_accent);
+            assert_eq!(paint(on, Part::Label, inactive(), &t), t.foreground);
+            assert_eq!(paint(on, Part::Fill, inactive(), &t).a, 1.);
+            assert_eq!(paint(off, Part::Fill, rest(), &t).a, 0.);
+            assert_eq!(paint(off, Part::Label, rest(), &t), t.foreground);
         }
     }
 

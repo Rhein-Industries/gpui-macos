@@ -11,9 +11,11 @@ pub fn tree(state: &Entity<TreeState>, cx: &App) -> Tree {
         .h(rems(17.5))
         .w_full()
         .list_style(div().size_full().style().clone())
-        .item(move |_, entry, state, window, _| {
+        .item(move |_, entry, state, window, cx| {
             let id = entry.item().id.clone();
-            let active = window.is_window_active();
+            // Spec §6.4: emphasized while the window is active; the tree's
+            // focus handle is private, so focus awareness is Later.
+            let (selected_fill, selected_text) = crate::row_selection(true, window, cx);
             div()
                 .debug_selector(move || format!("macos-tree-{id}"))
                 .flex()
@@ -28,12 +30,12 @@ pub fn tree(state: &Entity<TreeState>, cx: &App) -> Tree {
                 .font_family(t.font.clone())
                 .native_text_style(crate::TextStyle::Body, &t)
                 .text_color(if state.is_selected() {
-                    crate::controls::control_mark(&t, active)
+                    selected_text
                 } else {
                     t.foreground
                 })
                 .bg(if state.is_selected() {
-                    crate::controls::control_selection(&t, active)
+                    selected_fill
                 } else {
                     t.foreground.opacity(0.)
                 })
@@ -45,9 +47,6 @@ pub fn tree(state: &Entity<TreeState>, cx: &App) -> Tree {
                         crate::state::States::active().disabled(true),
                         &t,
                     ))
-                })
-                .when(!entry.is_disabled() && !state.is_selected(), |row| {
-                    row.hover(|s| s.bg(t.hover_fill()))
                 })
                 .when(entry.is_folder(), |row| {
                     row.child(
@@ -174,7 +173,23 @@ mod tests {
                 cx.update(|window, cx| window.draw(cx).clear(cx));
                 let row = cx.debug_bounds("macos-tree-selected").unwrap();
                 cx.update(|window, cx| {
-                    let expected = crate::controls::control_selection(cx.macos(), active);
+                    // Spec §6.4: selected_content while active, else unemphasized.
+                    let t = cx.macos();
+                    let expected = if active {
+                        t.selected_content()
+                    } else {
+                        t.unemphasized_selected_content()
+                    };
+                    assert_eq!(
+                        expected,
+                        gpui_kit::rgb(match (t.is_dark(), active) {
+                            (false, true) => 0x0064e1,
+                            (true, true) => 0x0059d1,
+                            (false, false) => 0xdcdcdc,
+                            (true, false) => 0x464646,
+                        })
+                        .into()
+                    );
                     assert!(
                         window.painted_quads().iter().any(|quad| {
                             quad.bounds == row.scale(window.scale_factor())

@@ -307,7 +307,6 @@ fn presentation(
 ) -> impl IntoElement + use<> {
     state.update(cx, |state, _| state.searchable = searchable);
     let t = cx.macos().clone();
-    let window_active = window.is_window_active();
     let choice = state.read(cx);
     let label = choice
         .selected()
@@ -363,18 +362,21 @@ fn presentation(
                 })
             });
     }
+    // Spec §6.3: the pop-up's whole-control ring, without an accent border.
+    let ring = (!disabled && crate::state::focus_visible(&trigger_focus, window))
+        .then(|| crate::state::focus_ring_pt(crate::tokens::CONTROL_RADIUS, window, &t));
     let root = div()
         .id("choice-keys")
         .aria_label(accessible_label)
         .when(!disabled, |root| {
             root.track_focus(&trigger_focus.tab_stop(true))
         })
+        .relative()
         .w_full()
-        .rounded(crate::tokens::pt(crate::tokens::CONTROL_RADIUS))
-        .when(window_active, |root| {
-            root.focus_visible(|s| s.shadow(t.focus_shadow()))
-        });
-    choice_keys(root, state, searchable).child(popup)
+        .rounded(crate::tokens::pt(crate::tokens::CONTROL_RADIUS));
+    choice_keys(root, state, searchable)
+        .child(popup)
+        .children(ring)
 }
 
 fn choice_keys(
@@ -553,8 +555,11 @@ fn choice_option(
     let cursor = choice.cursor;
     let selected = choice.selected;
     let t = cx.macos();
-    let cursor_fill = crate::controls::control_selection(t, window.is_window_active());
-    let cursor_text = crate::controls::control_mark(t, window.is_window_active());
+    // Popup rows follow the MenuItem rule (D10); M5 finalises its values.
+    let highlight = crate::state::PaintRole::MenuItem { highlighted: true };
+    let states = crate::state::States::in_window(window);
+    let cursor_fill = crate::state::paint(highlight, crate::state::Part::Fill, states, t);
+    let cursor_text = crate::state::paint(highlight, crate::state::Part::Label, states, t);
     let target = state.clone();
     let hover = state.clone();
     button(("choice-option", index), "", ButtonVariant::Secondary, cx)
