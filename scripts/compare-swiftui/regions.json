@@ -1,0 +1,5 @@
+{
+  "description": "Top-left window capture coordinates in points. Gallery sidebar: 13.75rem * 16 = 220pt (app.rs). Native unified toolbar exclusion: 52pt; verify against captures on the installed OS. Per-page entries merge with default. x/y use each capture's measured pixels-per-window-point scale; right/bottom are optional insets.",
+  "default": {"x": 220, "y": 52, "right": 0, "bottom": 0},
+  "pages": {}
+}

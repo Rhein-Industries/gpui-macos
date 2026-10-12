@@ -3804,14 +3804,17 @@ pub fn run() {
             )]);
             cx.set_menus([gpui_kit::Menu::new("GPUI macOS Gallery")
                 .items([gpui_kit::MenuItem::action("Quit GPUI macOS Gallery", Quit)])]);
+            let display_id = initial_display_id().filter(|id| cx.find_display(*id).is_some());
+            let mut bounds = Bounds::centered(display_id, size(px(1060.), px(760.)), cx);
+            // AppKit/WindowServer encloses fractional frame edges in whole points.
+            // Centering in an odd-width visible frame can otherwise report 1061 pt.
+            // Align the origin, not the size, before creating the native window.
+            bounds.origin = gpui_kit::point(bounds.origin.x.round(), bounds.origin.y.round());
             gpui_macos::open_window(
                 WindowOptions {
                     window_min_size: Some(size(px(680.), px(520.))),
-                    window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-                        None,
-                        size(px(1060.), px(760.)),
-                        cx,
-                    ))),
+                    display_id,
+                    window_bounds: Some(WindowBounds::Windowed(bounds)),
                     ..gpui_macos::native_window_options("GPUI macOS", cx)
                 },
                 cx,
@@ -3820,6 +3823,21 @@ pub fn run() {
             .expect("open component gallery");
             cx.activate(true);
         });
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn initial_display_id() -> Option<gpui_kit::DisplayId> {
+    let mut arguments = std::env::args().skip(1);
+    let mut display_id = None;
+    while let Some(argument) = arguments.next() {
+        if argument == "--display" {
+            display_id = arguments
+                .next()
+                .and_then(|value| value.parse::<u32>().ok())
+                .map(|id| gpui_kit::DisplayId::new(u64::from(id)));
+        }
+    }
+    display_id
 }
 
 fn initial_page() -> &'static str {
