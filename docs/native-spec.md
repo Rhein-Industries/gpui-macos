@@ -281,7 +281,7 @@ Steps 2 / 4 / 12 / 20 / 24 are library defaults, not measured (**E**).
 |---|---|---|
 | Sidebar row (default) | **32** (pitch 32; 31.75 inactive) | M |
 | Sidebar small / large preference | 24 / 40; label 11 / 15; icon column 20 / 26 | M (AppKit) |
-| Sidebar symbol (SwiftUI, regular) | label size (13) at large scale, medium weight, natural size; centred 13 after the row content, title 30 after it (26 slot) | M (capture ink boxes within 1 px) |
+| Sidebar symbol (SwiftUI, regular) | 13 pt, large scale, medium weight, natural size; centre 13, title 30 (26 slot) | M (ink within 1 px) |
 | Sidebar group header | 19, 11 pt, `tertiary_label`; disclosure chevron only under the pointer | M (AppKit; m5 capture) |
 | Sidebar group spacing | 13 before every group but the first | M (AppKit) |
 | List / table row | **24** (selection rect height; pitch 24.25 to 24.5) | M |
@@ -550,24 +550,35 @@ opaque window whose theme frame holds a full-window `.contentBackground`
 effect (within-window, active), so the sidebar glass samples the window
 background, not the desktop (M, view hierarchy).
 The window colour is #FFFFFF / #1E1E1E there, yet the sidebar shows #EDEDED /
-#262626 (polish-check captures), while free regular glass over the same colour
+#262626 (captures), while free regular glass over the same colour
 shows #FEFEFE / #373737 (our captures, matching the response above). The
 native sidebar glass therefore uses a configuration beyond the public style,
-tint and radius (O; the local view dump prints its private state). The library
+tint and radius (O). The library
 puts an opaque backdrop under regular glass instead, a custom approximation:
 #C9C9C9 light and #080808 dark, calibrated through the response above
 (#D9D9D9 measured 242, #FFFFFF 254, about 0.316 output per backdrop step) and
-verified by capture in an active window (polish3-check: 236 against the native
+verified by capture in an active window (236 against the native
 237 light, 38 against 38 dark; M for active windows, O for inactive windows and
 Increase Contrast).
 
 When the pointer is over the detail column's titlebar band
-(`NSTitlebarBackgroundView`, 52 pt), SwiftUI shows the titlebar background: the
-sidebar's surface (#262626 dark in the reference hover screenshot) with a
-0.5 pt hairline at its bottom (white @0.07 dark, M; black @0.05 light, the
-scroll pocket's hard fill in the view dump, E). The sidebar list keeps a
-52 pt scroll pocket (`NSScrollPocket`, soft edge effect) under the titlebar
-that blurs rows scrolled under it.
+(`NSTitlebarBackgroundView`, 220 to 1060 by 52 pt), SwiftUI shows a faint fill
+(none in light; white @0.034 in dark, 37.4 on 29.7) and a 0.5 pt hairline
+directly below the band (black @0.10 light, 229 on 255; white @0.071 dark,
+46 on 30); no glass or blur (M, 2x shots with and without the pointer; the
+scroll pockets stay hidden while hovering). The sidebar list keeps a scroll
+pocket (`NSScrollPocket`: gaussian-blur mask, colour-matrix blur portal, 1 pt
+hard fill ink @0.05, luminance adjustment at 0.6) under the 52 pt titlebar
+band. Its layer is 62 pt tall, from the window top to 10 pt below the band
+(view dump), with a `destIn` gradient (alpha 0 to 0.85 from 0.5 to 30.5 pt
+above its bottom). Rows scrolled under it stay faintly visible up to the
+window top, increasingly faded and blurred toward it, and a row just below
+the band is still faded, keeping 0.73, 0.80, 0.85 and 0.91 of its contrast at
+52, 54, 56 and 58 pt (M, 2x shots at scroll offsets 192 to 240). The library
+reproduces it with the cover gradient and a `CIGaussianBlur` (radius 1.4, on
+sRGB-encoded values) as public background filters: half strength at the top
+rising to full at 3 pt, full to 28 pt, easing out to none at 60 pt, fading
+over the last 12 pt of the width, over an opaque underlay (E, fitted).
 
 Active materials boost saturation (red-backdrop R gain 1.04 to 1.19; dark
 SwiftUI materials 1.5 to 1.7). A plain alpha blend is a known fallback deviation.

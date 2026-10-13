@@ -13,6 +13,9 @@ struct LaunchOptions: Sendable {
     let displayID: UInt32?
     /// `--open`: the page presents its primary popup on launch.
     let open: Bool
+    /// `--scroll-sidebar <pt>`: scroll the sidebar list by that many points
+    /// after launch (captures of rows under the titlebar).
+    let sidebarScroll: CGFloat?
 
     static let current = LaunchOptions(arguments: Array(CommandLine.arguments.dropFirst()))
 
@@ -21,6 +24,7 @@ struct LaunchOptions: Sendable {
         var appearance = Appearance.system
         var displayID: UInt32?
         var open = false
+        var sidebarScroll: CGFloat?
         var index = 0
         while index < arguments.count {
             let argument = arguments[index]
@@ -28,6 +32,12 @@ struct LaunchOptions: Sendable {
             case "--light": appearance = .light
             case "--dark": appearance = .dark
             case "--open": open = true
+            case "--scroll-sidebar":
+                if index + 1 < arguments.count, let points = Double(arguments[index + 1]),
+                   points > 0 {
+                    sidebarScroll = CGFloat(points)
+                }
+                if index + 1 < arguments.count { index += 1 }
             case "--display":
                 displayID = index + 1 < arguments.count ? UInt32(arguments[index + 1]) : nil
                 if index + 1 < arguments.count { index += 1 }
@@ -47,6 +57,7 @@ struct LaunchOptions: Sendable {
         self.appearance = appearance
         self.displayID = displayID
         self.open = open
+        self.sidebarScroll = sidebarScroll
     }
 }
 
@@ -81,9 +92,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // launched directly from a terminal or a capture script.
         NSApp.setActivationPolicy(.regular)
         (NSApp as LegacyActivation).activate(ignoringOtherApps: true)
+        if let points = LaunchOptions.current.sidebarScroll {
+            // After the first layout, like the gallery's `--scroll-sidebar`.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                SidebarScroll.scroll(by: points)
+            }
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+}
+
+/// `--scroll-sidebar <pt>`: scrolls the sidebar list's clip view from its
+/// resting position (rows start below the titlebar), as a user scroll would.
+@MainActor
+enum SidebarScroll {
+    static func scroll(by points: CGFloat) {
+        guard let window = NSApp.windows.first(where: \.isVisible),
+              let root = window.contentView else { return }
+        var found: NSScrollView?
+        func search(_ view: NSView) {
+            if found == nil, let scroll = view as? NSScrollView,
+               abs(scroll.frame.width - GalleryMetrics.sidebarWidth) < 1,
+               scroll.frame.height > 400 {
+                found = scroll
+            }
+            view.subviews.forEach(search)
+        }
+        search(root)
+        guard let scroll = found else { return }
+        let clip = scroll.contentView
+        clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: clip.bounds.origin.y + points))
+        scroll.reflectScrolledClipView(clip)
+    }
 }
 
 /// Entry point for the reference gallery.

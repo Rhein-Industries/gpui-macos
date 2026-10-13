@@ -37,6 +37,14 @@ registers it with Launch Services and prints the bundle path.
   tooltip surface under the button, since hover tooltips cannot be forced; here
   the menu is the same `NSMenu` popped up under its button, the tooltip a
   help-tag look-alike, and dialogs/sheets SwiftUI presentations.
+- `--scroll-sidebar <pt>` scrolls the sidebar list by that many points about
+  a second after launch, so rows sit under the titlebar and its scroll-edge
+  effect shows. The gallery scrolls its list by the same amount after its
+  first layout. Both start from the resting position (first row below the
+  titlebar).
+- `--reveal-header` (gallery only) shows the detail column's titlebar band as
+  if the pointer were over it; SwiftUI shows that band only under the real
+  pointer, so capture the reference with the pointer over the band.
 - Anything else is ignored (for example `-NSDocumentRevisionsDebugMode YES`).
   AppKit's `NSTreatUnknownArgumentsAsOpen` is turned off, otherwise a slug
   argument is treated as a document and the main window never opens.

@@ -697,8 +697,9 @@ mod tests {
 
     /// Sidebar symbols (tokens::SIDEBAR_SYMBOL_*): 13 pt, large scale,
     /// medium weight at their natural size in the 26 pt slot reproduce the
-    /// SwiftUI sidebar's ink boxes at 2x (polish-check captures: 30 x 31 and
-    /// 40 x 34 px, within 1 px), where fitting each symbol to a 24 pt box gave 37 x 37 and
+    /// SwiftUI sidebar's ink boxes at 2x (measured against the SwiftUI
+    /// reference app, tools/swiftui-reference: 30 x 31 and 40 x 34 px, within
+    /// 1 px), where fitting each symbol to a 24 pt box gave 37 x 37 and
     /// 42 x 34. Each symbol keeps its own width.
     ///
     /// Baseline: host SF Symbols artwork on macOS 26 and 27 (captured on

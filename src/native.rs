@@ -243,8 +243,9 @@ impl NativeGlass {
     /// `NavigationSplitView` sidebar samples its opaque window rather than
     /// the desktop. The backdrop is a custom approximation, calibrated so
     /// regular glass matches the native sidebar colour in an active window
-    /// (`tokens::SIDEBAR_GLASS_BACKDROP`, verified by capture).
-    /// Without real glass (older systems, headless, Reduce Transparency), paint [`crate::Theme::sidebar_material`]:
+    /// (`tokens::SIDEBAR_GLASS_BACKDROP`, verified by capture). Without real
+    /// glass (older systems, headless, Reduce Transparency), paint
+    /// [`crate::Theme::sidebar_material`]:
     /// the measured tint while the window is active, opaque #F0F0F0 /
     /// #282828 while it is inactive.
     pub(crate) fn sidebar_material(mut self) -> Self {
@@ -332,31 +333,49 @@ impl RenderOnce for NativeGlass {
 }
 
 /// AppKit's soft scroll-edge effect for content that scrolls under the
-/// titlebar: the scroll pocket a SwiftUI sidebar list keeps in the top 52 pt
-/// band under the window controls (spec §7.1 view dump). The effect is
-/// full strength over the top half of the band and fades out toward the
-/// band's bottom edge, where scrolled content becomes sharp again.
+/// titlebar: the scroll pocket a SwiftUI sidebar list keeps under the window
+/// controls (spec §7.1 view dump). The pocket covers the titlebar band plus
+/// [`crate::tokens::SCROLL_EDGE_OVERHANG`] (10 pt) below it: 62 pt for the
+/// 52 pt unified toolbar. As in the SwiftUI sidebar, rows stay faintly
+/// visible up to the window top, increasingly faded and blurred toward it,
+/// and a row at the band's lower edge is faded evenly, icon and text alike,
+/// without a visible line through it. This element paints the cover — the
+/// surface at alpha 0.85 down to 31.5 pt of the 62 pt pocket, then falling
+/// linearly to zero at 61.5 pt, the native pocket's gradient — and, on macOS
+/// with real system materials, blurs the content near the top with AppKit's
+/// public background filters: a `CIGaussianBlur` of radius 1.4 on
+/// sRGB-encoded values, on a layer-backed view above the renderer, at half
+/// strength at the very top rising to full at 3 pt, full to 28 pt and
+/// easing out to none at 60 pt, fading out over the last 12 pt of the width,
+/// so rows under the band stay see-through, softly blurred and readable, as
+/// native, and a row at the band's lower edge is only faded. Without those
+/// filters (older systems,
+/// headless windows, Reduce Transparency) it paints the cover alone.
+/// `GPUI_MACOS_SCROLL_EDGE_BLUR=0` turns the blur off for debugging;
+/// `GPUI_MACOS_SCROLL_EDGE_RADIUS` overrides its radius (backing pixels).
 ///
-/// Position it over the band (for example `.absolute().top_0().left_0()
-/// .w_full().h(native_toolbar_inset(window))`) as the last child of the
-/// scrolling region, and set [`ScrollEdgeEffect::active`] only while content
-/// is scrolled underneath. With real system materials it is an AppKit blur
-/// above the GPUI renderer that ignores pointer hit testing; elsewhere
-/// (older systems, headless, Reduce Transparency, or a host whose material
-/// layers are not recognised) it paints a fade from
-/// [`ScrollEdgeEffect::fallback_color`], the surface colour behind the band.
+/// Position it over the pocket (for example `.absolute().top_0().left_0()
+/// .w_full().h(native_toolbar_inset(window) +
+/// px(tokens::SCROLL_EDGE_OVERHANG))`) as the last child of the scrolling
+/// region, set
+/// [`ScrollEdgeEffect::surface_color`] to the opaque colour the region shows
+/// behind its content (for a sidebar, [`crate::sidebar_surface`]), and set
+/// [`ScrollEdgeEffect::active`] while content is scrolled underneath. While
+/// it is active and [`scroll_edge_blur_available`], also place
+/// [`scroll_edge_underlay`] with the same colour and geometry behind the
+/// scrolled content, so the blur samples an opaque surface.
 ///
-/// Restriction: the native blur sits above the whole GPUI renderer, so any
-/// GPUI content painted over the band — inline sheets and dialogs, toasts,
-/// tooltips, selection overlays — is blurred with it. Deactivate the effect
-/// while such an overlay is open (the gallery does so for its inline sheet
-/// and dialog). Popups that open as their own windows are unaffected.
+/// Restriction: the blur view sits above the whole GPUI renderer, so GPUI
+/// overlays painted over the pocket (inline sheets and dialogs, toasts,
+/// tooltips) are blurred with it. Deactivate the effect while such an
+/// overlay is open (the gallery does so for its inline sheet and dialog).
+/// Popups that open as their own windows are unaffected.
 #[derive(IntoElement)]
 pub struct ScrollEdgeEffect {
     id: ElementId,
     base: Div,
     active: bool,
-    fallback: Option<Hsla>,
+    surface: Option<Hsla>,
 }
 
 /// Start a scroll-edge effect; see [`ScrollEdgeEffect`].
@@ -365,7 +384,7 @@ pub fn scroll_edge_effect(id: impl Into<ElementId>) -> ScrollEdgeEffect {
         id: id.into(),
         base: div(),
         active: false,
-        fallback: None,
+        surface: None,
     }
 }
 
@@ -377,10 +396,11 @@ impl ScrollEdgeEffect {
         self
     }
 
-    /// The opaque surface behind the band, which the fallback fades from.
-    /// Defaults to the theme's window background.
-    pub fn fallback_color(mut self, color: Hsla) -> Self {
-        self.fallback = Some(color);
+    /// The opaque colour the scrolling region shows behind its content,
+    /// which covers content scrolled under the band. Defaults to the
+    /// theme's window background.
+    pub fn surface_color(mut self, color: Hsla) -> Self {
+        self.surface = Some(color);
         self
     }
 }
@@ -393,45 +413,29 @@ impl Styled for ScrollEdgeEffect {
 
 impl RenderOnce for ScrollEdgeEffect {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let _ = (&self.id, &window);
         if !self.active {
             return self.base;
         }
+        let color = self.surface.unwrap_or(cx.macos().background);
+        let base = self.base.bg(scroll_edge_cover(color));
+        // The background-filter blur (public API): see
+        // `macos::scroll_edge_blur_enabled`.
         #[cfg(target_os = "macos")]
-        if !cx.macos().reduce_transparency && glass_available(window) && !is_glass_popup(window) {
+        if scroll_edge_blur_available(window, cx) {
             let state =
-                window.use_keyed_state((self.id.clone(), "scroll-edge"), cx, |window, cx| {
-                    // A rejected material layer tree is found by AppKit after this
-                    // frame; repaint then (outside drawing) to show the fallback.
-                    let handle = window.window_handle();
-                    let async_cx = cx.to_async();
-                    let on_reject = Box::new(move || {
-                        async_cx
-                            .spawn(async move |cx| {
-                                let _ = handle.update(cx, |_, window, _| window.refresh());
-                            })
-                            .detach();
-                    });
-                    macos::ScrollEdgeOverlay::new(window, on_reject).ok()
+                window.use_keyed_state((self.id.clone(), "scroll-edge-blur"), cx, |window, _| {
+                    macos::ScrollEdgeBlur::new(window).ok()
                 });
-            if let Some(overlay) = state.read(cx).as_ref()
-                && !overlay.supported()
-            {
-                // Never leave an untouched material above the fallback.
-                overlay.hide();
-            }
-            if state
-                .read(cx)
-                .as_ref()
-                .is_some_and(|overlay| overlay.supported())
-            {
-                return self.base.child(
+            if state.read(cx).is_some() {
+                return base.child(
                     canvas(
                         |bounds, window, _| {
                             (bounds, bounds.intersect(&window.content_mask().bounds))
                         },
                         move |_, (bounds, visible), window, cx| {
-                            if let Some(overlay) = state.read(cx) {
-                                overlay.update(bounds, visible, window);
+                            if let Some(blur) = state.read(cx) {
+                                blur.update(bounds, visible, window);
                             }
                         },
                     )
@@ -440,19 +444,52 @@ impl RenderOnce for ScrollEdgeEffect {
                 );
             }
         }
-        let _ = &self.id;
-        let color = self.fallback.unwrap_or(cx.macos().background);
-        self.base.bg(scroll_edge_fallback(color))
+        base
     }
 }
 
-/// The fallback fade: `color` over the top half of the band, then fading to
-/// clear at its bottom edge (CSS angle 180 runs top to bottom).
-pub(crate) fn scroll_edge_fallback(color: Hsla) -> gpui_kit::Background {
+/// Whether a [`ScrollEdgeEffect`] in this window blurs content as well as
+/// covering it: on macOS with real system materials, outside glass popups,
+/// without Reduce Transparency or `GPUI_MACOS_SCROLL_EDGE_BLUR=0`.
+pub fn scroll_edge_blur_available(window: &Window, cx: &App) -> bool {
+    #[cfg(target_os = "macos")]
+    return macos::scroll_edge_blur_enabled()
+        && !cx.macos().reduce_transparency
+        && glass_available(window)
+        && !is_glass_popup(window);
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (window, cx);
+        false
+    }
+}
+
+/// The opaque surface behind content scrolled under a [`ScrollEdgeEffect`]:
+/// place it as the scrolling region's first child, over the band (the same
+/// geometry as the effect), while the effect is active and
+/// [`scroll_edge_blur_available`], with the same `surface_color`. Without
+/// the blur it is not needed. The blur's background filters see only GPUI's own layer,
+/// not the system glass under it, so where the band's pixels are
+/// translucent they blurred against transparent black and darkened the band
+/// (0.87 × 236 ≈ 206 light, 33 dark in our captures). An opaque surface in
+/// GPUI's layer gives the blur the right colours; it matches the sidebar
+/// glass's measured output, so it is not seen.
+pub fn scroll_edge_underlay(surface: Hsla) -> Div {
+    div().bg(surface.opacity(1.))
+}
+
+/// The cover: `color` at [`crate::tokens::SCROLL_EDGE_COVER_ALPHA`] down to
+/// [`crate::tokens::SCROLL_EDGE_COVER_SOLID`] of the pocket, its alpha then
+/// falling linearly to zero at [`crate::tokens::SCROLL_EDGE_COVER_END`] (CSS
+/// angle 180 runs top to bottom).
+pub(crate) fn scroll_edge_cover(color: Hsla) -> gpui_kit::Background {
     gpui_kit::linear_gradient(
         180.,
-        gpui_kit::linear_color_stop(color, 0.5),
-        gpui_kit::linear_color_stop(color.opacity(0.), 1.),
+        gpui_kit::linear_color_stop(
+            color.opacity(color.a * crate::tokens::SCROLL_EDGE_COVER_ALPHA),
+            crate::tokens::SCROLL_EDGE_COVER_SOLID,
+        ),
+        gpui_kit::linear_color_stop(color.opacity(0.), crate::tokens::SCROLL_EDGE_COVER_END),
     )
 }
 

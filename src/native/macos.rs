@@ -7,18 +7,17 @@ use objc2::{DefinedClass, MainThreadOnly, define_class, msg_send, rc::Retained, 
 use objc2_app_kit::{
     NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
     NSAutoresizingMaskOptions, NSBezierPath, NSColor, NSControlTextDidChangeNotification,
-    NSControlTextEditingDelegate, NSGlassEffectView, NSGlassEffectViewStyle, NSGradient, NSImage,
-    NSImageResizingMode, NSLayoutAttribute, NSOutlineView, NSPanel, NSSearchField,
-    NSSearchFieldDelegate, NSTableViewRowSizeStyle, NSTableViewStyle, NSTextFieldDelegate,
+    NSControlTextEditingDelegate, NSGlassEffectView, NSGlassEffectViewStyle, NSImage,
+    NSLayoutAttribute, NSOutlineView, NSPanel, NSSearchField, NSSearchFieldDelegate,
+    NSTableViewRowSizeStyle, NSTableViewStyle, NSTextFieldDelegate,
     NSTitlebarAccessoryViewController, NSToolbar, NSToolbarDelegate, NSToolbarDisplayMode,
-    NSToolbarItem, NSUserInterfaceItemIdentification, NSView, NSVisualEffectBlendingMode,
-    NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView, NSWindow,
+    NSToolbarItem, NSUserInterfaceItemIdentification, NSView, NSWindow,
     NSWindowDidExitFullScreenNotification, NSWindowOrderingMode, NSWindowStyleMask,
     NSWindowTitleVisibility, NSWindowToolbarStyle,
 };
 use objc2_foundation::{
-    MainThreadMarker, NSArray, NSEdgeInsets, NSNotification, NSNotificationCenter, NSObject,
-    NSObjectProtocol, NSPoint, NSRect, NSSize, NSString,
+    MainThreadMarker, NSArray, NSNotification, NSNotificationCenter, NSObject, NSObjectProtocol,
+    NSPoint, NSRect, NSSize, NSString,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use std::{
@@ -202,12 +201,58 @@ fn sidebar_backdrop_rgb(dark: bool) -> [f64; 3] {
     [16, 8, 0].map(|shift| f64::from((rgb >> shift) & 0xff) / 255.)
 }
 
+/// sRGB components of the sidebar surface as the glass shows it
+/// (tokens::SIDEBAR_GLASS_SURFACE).
+fn sidebar_surface_rgb(dark: bool) -> [f64; 3] {
+    let rgb = crate::tokens::SIDEBAR_GLASS_SURFACE[usize::from(dark)];
+    [16, 8, 0].map(|shift| f64::from((rgb >> shift) & 0xff) / 255.)
+}
+
+define_class!(
+    // SAFETY: NSView has no extra subclassing invariants. All methods run on
+    // the main thread and match AppKit's selectors and signatures exactly.
+    #[unsafe(super = NSView)]
+    #[name = "GPUIMacosSurfaceView"]
+    #[thread_kind = MainThreadOnly]
+    struct SurfaceView;
+
+    unsafe impl NSObjectProtocol for SurfaceView {}
+
+    impl SurfaceView {
+        #[unsafe(method_id(hitTest:))]
+        fn hit_test(&self, _point: NSPoint) -> Option<Retained<NSView>> { None }
+
+        /// Fill with the sidebar surface for the view's effective appearance.
+        #[unsafe(method(drawRect:))]
+        fn draw_rect(&self, dirty: NSRect) {
+            let [red, green, blue] = sidebar_surface_rgb(appearance_is_dark(self));
+            NSColor::colorWithSRGBRed_green_blue_alpha(red, green, blue, 1.).setFill();
+            NSBezierPath::fillRect(dirty);
+        }
+
+        #[unsafe(method(viewDidChangeEffectiveAppearance))]
+        fn appearance_changed(&self) {
+            self.setNeedsDisplay(true);
+        }
+    }
+);
+
+impl SurfaceView {
+    fn new(mtm: MainThreadMarker) -> Retained<Self> {
+        // SAFETY: NSView's initWithFrame: contract; a zero frame is valid.
+        unsafe { msg_send![Self::alloc(mtm), initWithFrame: NSRect::ZERO] }
+    }
+}
+
 /// A clipped native underlay, owned by one consecutive-frame GPUI element.
 pub(super) struct GlassUnderlay {
     host: Retained<MaterialHostView>,
     glass: Retained<NSGlassEffectView>,
     /// The sidebar's opaque in-window backdrop, under the glass. See `new`.
     backdrop: Option<Retained<SidebarBackdropView>>,
+    /// The sidebar surface over the glass along the sidebar's trailing edge,
+    /// inside the clipping host. See `update`.
+    edge: Option<Retained<SurfaceView>>,
     presentation: Cell<Option<UnderlayPresentation>>,
     visible: Cell<bool>,
 }
@@ -266,10 +311,16 @@ impl GlassUnderlay {
             NSWindowOrderingMode::Below,
             Some(&renderer),
         );
+        let edge = sidebar.then(|| {
+            let edge = SurfaceView::new(mtm);
+            host.addSubview(&edge);
+            edge
+        });
         Ok(Self {
             host,
             glass,
             backdrop,
+            edge,
             presentation: Cell::new(None),
             visible: Cell::new(false),
         })
@@ -304,13 +355,43 @@ impl GlassUnderlay {
         };
         // Keep the full glass geometry within a clipping host. Scrolling does
         // not create artificial rounded corners at the viewport's cut edge.
-        let glass_frame = inner_frame(bounds, visible);
+        let mut glass_frame = inner_frame(bounds, visible);
+        if self.backdrop.is_some() {
+            // The sidebar glass extends past its bounds on every side; the
+            // host clips it. Regular glass draws a bright rim and a refraction
+            // band about 20 pt wide along its edges (our captures: 255 at the
+            // top edge, 232 at 4 to 8 pt, 236 by 20 pt; brighter toward the
+            // trailing edge), which the flat native sidebar does not have.
+            let outset = f64::from(crate::tokens::SIDEBAR_GLASS_EDGE_OUTSET);
+            glass_frame = NSRect::new(
+                NSPoint::new(glass_frame.origin.x - outset, glass_frame.origin.y - outset),
+                NSSize::new(
+                    glass_frame.size.width + 2. * outset,
+                    glass_frame.size.height + 2. * outset,
+                ),
+            );
+        }
         let radius = f64::from(f32::from(radius));
         let previous = self.presentation.get();
         // Reapplying material properties on every GPUI repaint causes needless
         // AppKit layout and compositing work, even when only a control animates.
         if previous.is_none_or(|previous| previous.host_frame != frame) {
             self.host.setFrame(frame);
+            if let Some(edge) = &self.edge {
+                // The glass blurs what lies under it past its clipping host,
+                // so near the sidebar's trailing edge it sampled the window
+                // background (white / #1E1E1E) and brightened its last ~44 pt
+                // (236 to 244 light, 38 to 43 dark in our 2x captures; native
+                // is flat). The sidebar surface covers that strip; the glass
+                // is flat there anyway, and the strip stays inside the
+                // sidebar.
+                let width =
+                    f64::from(crate::tokens::SIDEBAR_GLASS_EDGE_STRIP).min(frame.size.width);
+                edge.setFrame(NSRect::new(
+                    NSPoint::new(frame.size.width - width, 0.),
+                    NSSize::new(width, frame.size.height),
+                ));
+            }
         }
         if previous.is_none_or(|previous| previous.glass_frame != glass_frame) {
             self.glass.setFrame(glass_frame);
@@ -361,212 +442,6 @@ impl Drop for GlassUnderlay {
     }
 }
 
-define_class!(
-    // SAFETY: NSVisualEffectView has no extra subclassing invariants. All
-    // methods run on the main thread and match AppKit's selectors exactly;
-    // updateLayer calls its superclass implementation first.
-    #[unsafe(super(NSVisualEffectView, NSView))]
-    #[name = "GPUIMacosScrollEdgeBlurView"]
-    #[thread_kind = MainThreadOnly]
-    #[ivars = BlurIvars]
-    struct ScrollEdgeBlurView;
-
-    unsafe impl NSObjectProtocol for ScrollEdgeBlurView {}
-
-    impl ScrollEdgeBlurView {
-        #[unsafe(method_id(hitTest:))]
-        fn hit_test(&self, _point: NSPoint) -> Option<Retained<NSView>> { None }
-
-        #[unsafe(method(updateLayer))]
-        fn update_layer(&self) {
-            // SAFETY: updateLayer takes no arguments and returns nothing.
-            let _: () = unsafe { msg_send![super(self), updateLayer] };
-            // Once unsupported, the material stays untouched.
-            if !self.ivars().support.supported() {
-                return;
-            }
-            // SAFETY: -[NSView layer] returns the view's (optional) CALayer.
-            let layer: Option<Retained<AnyObject>> = unsafe { msg_send![self, layer] };
-            let Some(layer) = layer else {
-                return;
-            };
-            if self.ivars().support.record(strip_material_tint(&layer)) {
-                // Rejected while possibly on screen: hide the untouched
-                // material now (its host is the clipping MaterialHostView)
-                // and ask the element to repaint with its fallback.
-                if let Some(host) = parent_view(self) {
-                    host.setHidden(true);
-                }
-                if let Some(on_reject) = self.ivars().on_reject.borrow().as_ref() {
-                    on_reject();
-                }
-            }
-        }
-    }
-);
-
-struct BlurIvars {
-    support: LayerSupport,
-    /// Schedules a GPUI repaint (outside of drawing) after a rejection.
-    on_reject: RefCell<Option<Box<dyn Fn()>>>,
-}
-
-/// Whether a scroll-edge material's layer tree was recognised. Unknown until
-/// AppKit first builds the layers; a rejection is final.
-#[derive(Default)]
-struct LayerSupport(Cell<Option<bool>>);
-
-impl LayerSupport {
-    fn supported(&self) -> bool {
-        self.0.get() != Some(false)
-    }
-
-    /// Record a recognition result; true only for the transition into
-    /// rejection, when the caller must hide the material and repaint.
-    fn record(&self, recognised: bool) -> bool {
-        if !self.supported() {
-            return false;
-        }
-        self.0.set(Some(recognised));
-        !recognised
-    }
-}
-
-/// A CGColorRef argument, encoded as AppKit declares it.
-#[repr(transparent)]
-struct CgColorRef(*const std::ffi::c_void);
-// SAFETY: A CGColorRef is a pointer to the opaque `CGColor` struct.
-unsafe impl objc2::Encode for CgColorRef {
-    const ENCODING: objc2::Encoding =
-        objc2::Encoding::Pointer(&objc2::Encoding::Struct("CGColor", &[]));
-}
-
-/// What a material's layer tree must contain before its tint is stripped.
-#[derive(Default, Debug, PartialEq)]
-struct MaterialLayers {
-    /// A backdrop (blur) layer: `CABackdropLayer` or a subclass.
-    backdrop: bool,
-    /// The tint: a `CAChameleonLayer` or a saturation filter.
-    tint: bool,
-}
-
-impl MaterialLayers {
-    /// The structure GPUI's own `Blurred` backdrop strips: a blur and the
-    /// tint layer or filter that is removed. Anything else stays untouched.
-    fn supported(&self) -> bool {
-        self.backdrop && self.tint
-    }
-
-    fn note(&mut self, class_name: &str, filters: &[String]) {
-        if class_name.contains("Backdrop") {
-            self.backdrop = true;
-        }
-        if class_name == "CAChameleonLayer" || filters.iter().any(|f| f.contains("Saturat")) {
-            self.tint = true;
-        }
-    }
-}
-
-/// Visit a layer tree: (class name, filter descriptions) per layer.
-fn visit_layers(layer: &AnyObject, visit: &mut dyn FnMut(&AnyObject, &str, &[String])) {
-    // SAFETY: className, filters, description and sublayers are public
-    // NSObject/CALayer getters, sent on the main thread to our own view's
-    // layer tree during its updateLayer pass.
-    unsafe {
-        let class_name: Retained<NSString> = msg_send![layer, className];
-        let filters: Option<Retained<NSArray<AnyObject>>> = msg_send![layer, filters];
-        let filters: Vec<String> = filters
-            .iter()
-            .flat_map(|filters| filters.iter())
-            .map(|filter| {
-                let description: Retained<NSString> = msg_send![&*filter, description];
-                description.to_string()
-            })
-            .collect();
-        visit(layer, &class_name.to_string(), &filters);
-        let sublayers: Option<Retained<NSArray<AnyObject>>> = msg_send![layer, sublayers];
-        if let Some(sublayers) = sublayers {
-            for sublayer in sublayers.iter() {
-                visit_layers(&sublayer, visit);
-            }
-        }
-    }
-}
-
-/// Leave only the blur of a material: the treatment GPUI's own `Blurred`
-/// window backdrop applies (clear the fills of non-backdrop layers, hide
-/// the tinting layer, drop the saturation filter). A scroll-edge effect blurs content without tinting
-/// it, so it is invisible over a uniform background. The tree is mutated only
-/// when it has exactly the recognised structure; otherwise it is left
-/// untouched and this returns false.
-fn strip_material_tint(layer: &AnyObject) -> bool {
-    let mut layers = MaterialLayers::default();
-    visit_layers(layer, &mut |_, class_name, filters| {
-        layers.note(class_name, filters)
-    });
-    if !layers.supported() {
-        return false;
-    }
-    visit_layers(layer, &mut |layer, class_name, filters| {
-        // SAFETY: Public CALayer setters with their declared argument types,
-        // on the main thread, for layers of the recognised structure.
-        unsafe {
-            if class_name == "CAChameleonLayer" {
-                let _: () = msg_send![layer, setHidden: true];
-                return;
-            }
-            // The blur itself keeps its own configuration.
-            if !class_name.contains("Backdrop") {
-                let _: () = msg_send![layer, setBackgroundColor: CgColorRef(std::ptr::null())];
-            }
-            if filters.iter().any(|filter| filter.contains("Saturat")) {
-                let current: Option<Retained<NSArray<AnyObject>>> = msg_send![layer, filters];
-                if let Some(current) = current {
-                    let kept: Vec<Retained<AnyObject>> = current
-                        .iter()
-                        .filter(|filter| {
-                            let description: Retained<NSString> = msg_send![&**filter, description];
-                            !description.to_string().contains("Saturat")
-                        })
-                        .collect();
-                    let kept = NSArray::from_retained_slice(&kept);
-                    let _: () = msg_send![layer, setFilters: &*kept];
-                }
-            }
-        }
-    });
-    true
-}
-
-/// A vertical alpha mask, opaque over the top half and fading out toward
-/// the bottom, stretched to the effect's bounds.
-fn scroll_edge_mask() -> Retained<NSImage> {
-    let draw = block2::RcBlock::new(|rect: NSRect| -> objc2::runtime::Bool {
-        let colors = NSArray::from_retained_slice(&[
-            NSColor::colorWithSRGBRed_green_blue_alpha(0., 0., 0., 0.),
-            NSColor::colorWithSRGBRed_green_blue_alpha(0., 0., 0., 1.),
-            NSColor::colorWithSRGBRed_green_blue_alpha(0., 0., 0., 1.),
-        ]);
-        if let Some(gradient) =
-            NSGradient::initWithColors(<NSGradient as objc2::AnyThread>::alloc(), &colors)
-        {
-            // 90 degrees runs from the bottom (clear) to the top (opaque) in
-            // the unflipped drawing context.
-            gradient.drawInRect_angle(rect, 90.);
-        }
-        objc2::runtime::Bool::YES
-    });
-    let image = NSImage::imageWithSize_flipped_drawingHandler(NSSize::new(1., 64.), false, &draw);
-    image.setCapInsets(NSEdgeInsets {
-        top: 0.,
-        left: 0.,
-        bottom: 0.,
-        right: 0.,
-    });
-    image.setResizingMode(NSImageResizingMode::Stretch);
-    image
-}
-
 /// The rectangle of `visible` (renderer coordinates) in the renderer's parent.
 fn parent_frame(renderer: &NSView, parent: &NSView, visible: Bounds<Pixels>) -> Option<NSRect> {
     let w = f64::from(f32::from(visible.size.width));
@@ -587,93 +462,6 @@ fn parent_frame(renderer: &NSView, parent: &NSView, visible: Bounds<Pixels>) -> 
     ))
 }
 
-/// An in-window blur above the GPUI renderer, owned by one consecutive-frame
-/// GPUI element: the counterpart of AppKit's soft scroll-edge effect (the
-/// scroll pocket under a titlebar). It ignores hit testing, so pointer
-/// events reach the renderer below it.
-pub(super) struct ScrollEdgeOverlay {
-    host: Retained<MaterialHostView>,
-    blur: Retained<ScrollEdgeBlurView>,
-    frame: Cell<Option<(NSRect, NSRect)>>,
-    visible: Cell<bool>,
-}
-
-impl ScrollEdgeOverlay {
-    /// `on_reject` runs if AppKit's material layers are not recognised; it
-    /// must schedule a GPUI repaint, which then paints the fallback.
-    pub(super) fn new(window: &Window, on_reject: Box<dyn Fn()>) -> anyhow::Result<Self> {
-        let mtm = main_thread()?;
-        let renderer = renderer_view(window)?;
-        let parent = parent_view(&renderer).context("Renderer has no native parent view")?;
-        // SAFETY: MaterialHostView inherits NSView's initWithFrame: contract.
-        let host: Retained<MaterialHostView> =
-            unsafe { msg_send![MaterialHostView::alloc(mtm), initWithFrame: NSRect::ZERO] };
-        host.setClipsToBounds(true);
-        host.setHidden(true);
-        // SAFETY: ScrollEdgeBlurView inherits NSVisualEffectView's
-        // initWithFrame: contract; the zero frame is valid on the main thread.
-        let blur = ScrollEdgeBlurView::alloc(mtm).set_ivars(BlurIvars {
-            support: LayerSupport::default(),
-            on_reject: RefCell::new(Some(on_reject)),
-        });
-        let blur: Retained<ScrollEdgeBlurView> =
-            unsafe { msg_send![super(blur), initWithFrame: NSRect::ZERO] };
-        blur.setMaterial(NSVisualEffectMaterial::HeaderView);
-        blur.setBlendingMode(NSVisualEffectBlendingMode::WithinWindow);
-        blur.setState(NSVisualEffectState::Active);
-        blur.setMaskImage(Some(&scroll_edge_mask()));
-        host.addSubview(&blur);
-        parent.addSubview_positioned_relativeTo(
-            &host,
-            NSWindowOrderingMode::Above,
-            Some(&renderer),
-        );
-        Ok(Self {
-            host,
-            blur,
-            frame: Cell::new(None),
-            visible: Cell::new(false),
-        })
-    }
-
-    pub(super) fn hide(&self) {
-        if self.visible.replace(false) {
-            self.host.setHidden(true);
-        }
-    }
-
-    /// False once AppKit's material layers turned out not to have the
-    /// structure the tint stripping recognises; callers paint their
-    /// fallback instead (the view is then hidden and left untouched).
-    pub(super) fn supported(&self) -> bool {
-        self.blur.ivars().support.supported()
-    }
-
-    /// Show the effect over `bounds`, clipped to `visible`. The blur keeps
-    /// the full bounds inside a clipping host, so a partly clipped band
-    /// clips its fade rather than rescaling it.
-    pub(super) fn update(&self, bounds: Bounds<Pixels>, visible: Bounds<Pixels>, window: &Window) {
-        if !self.supported() {
-            self.hide();
-            return;
-        }
-        let Some(frame) = renderer_view(window).ok().and_then(|renderer| {
-            parent_view(&renderer).and_then(|parent| parent_frame(&renderer, &parent, visible))
-        }) else {
-            self.hide();
-            return;
-        };
-        let blur_frame = inner_frame(bounds, visible);
-        if self.frame.replace(Some((frame, blur_frame))) != Some((frame, blur_frame)) {
-            self.host.setFrame(frame);
-            self.blur.setFrame(blur_frame);
-        }
-        if !self.visible.replace(true) {
-            self.host.setHidden(false);
-        }
-    }
-}
-
 /// `bounds` relative to `visible`, in a flipped host whose frame is `visible`.
 fn inner_frame(bounds: Bounds<Pixels>, visible: Bounds<Pixels>) -> NSRect {
     NSRect::new(
@@ -688,10 +476,243 @@ fn inner_frame(bounds: Bounds<Pixels>, visible: Bounds<Pixels>) -> NSRect {
     )
 }
 
-impl Drop for ScrollEdgeOverlay {
+/// The scroll-edge blur (public API, on by default): blurs GPUI content
+/// near the top of the scroll pocket with AppKit's public background
+/// filters, on a layer-backed view above the renderer with
+/// `layerUsesCoreImageFilters`, a `CIGaussianBlur` in `backgroundFilters`
+/// and a layer mask (a public `CALayer` with an `NSImage`) for the native
+/// pocket's strength profile. The view ignores hit testing.
+/// `GPUI_MACOS_SCROLL_EDGE_BLUR=0` turns the blur off (cover only) for
+/// debugging; `GPUI_MACOS_SCROLL_EDGE_RADIUS` overrides the radius.
+pub(super) fn scroll_edge_blur_enabled() -> bool {
+    std::env::var("GPUI_MACOS_SCROLL_EDGE_BLUR").map_or(true, |value| value != "0")
+}
+
+/// The blur's radius in backing pixels and its strength profile over the
+/// pocket, from its top (fractions of the band height): full from the top
+/// until `full_until`, falling to zero at `zero_at`.
+#[derive(Clone, Copy)]
+struct BlurLayer {
+    radius: f64,
+    full_until: f64,
+    zero_at: f64,
+}
+
+/// The blur over the pocket (the titlebar band plus
+/// `tokens::SCROLL_EDGE_OVERHANG`, 62 pt), as fractions of its height from
+/// the top: half strength rising to full at 3 pt (`BLUR_TOP_RISE`), full to
+/// 28 pt, then easing out (smoothstep) to none at 60 pt, so rows enter the
+/// blur gradually, as native. Radius 1.4 (backing pixels as Core Image
+/// counts them on the layer), applied to sRGB-encoded values: native keeps
+/// rows under the band see-through, softly blurred and readable, throughout.
+/// Chosen by eye against the SwiftUI reference app (tools/swiftui-reference)
+/// and checked against its contrast profile under the band (mean error 6.0
+/// / 6.1 per pt light / dark at 3 to 30 pt); a closer numeric fit (radius
+/// 1.8) read too soft by eye, and a large radius erased the rows.
+fn scroll_edge_blur_layer() -> BlurLayer {
+    BlurLayer {
+        radius: radius_override(1.4),
+        full_until: 28. / 62.,
+        zero_at: 60. / 62.,
+    }
+}
+
+/// Over what part of the band's width, at its trailing edge, the blur
+/// fades out, so it does not pull in content beyond the band: 12 pt of the
+/// 220 pt sidebar, fitted with the earlier, stronger blur (a 3 pt fade left
+/// the trailing edge darkened to 229 to 235 over 8 pt against native 236 to
+/// 237, light, offset 208).
+const BLUR_TRAILING_FADE: f64 = 12. / 220.;
+
+/// `GPUI_MACOS_SCROLL_EDGE_RADIUS` in backing pixels, or `default`.
+fn radius_override(default: f64) -> f64 {
+    std::env::var("GPUI_MACOS_SCROLL_EDGE_RADIUS")
+        .ok()
+        .and_then(|value| value.parse::<f64>().ok())
+        .filter(|radius| radius.is_finite() && *radius >= 0.)
+        .unwrap_or(default)
+}
+
+pub(super) struct ScrollEdgeBlur {
+    host: Retained<MaterialHostView>,
+    mask: Retained<AnyObject>,
+    presentation: Cell<Option<BlurPresentation>>,
+    visible: Cell<bool>,
+}
+
+/// The host frame, mask frame and backing scale last applied.
+#[derive(Clone, Copy, PartialEq)]
+struct BlurPresentation {
+    frame: NSRect,
+    mask_frame: NSRect,
+    scale: f64,
+}
+
+impl ScrollEdgeBlur {
+    pub(super) fn new(window: &Window) -> anyhow::Result<Self> {
+        let mtm = main_thread()?;
+        let filter_class = AnyClass::get(c"CIFilter").context("CIFilter is unavailable")?;
+        let layer_class = AnyClass::get(c"CALayer").context("CALayer is unavailable")?;
+        let renderer = renderer_view(window)?;
+        let parent = parent_view(&renderer).context("Renderer has no native parent view")?;
+        let layer = scroll_edge_blur_layer();
+        // SAFETY: MaterialHostView inherits NSView's initWithFrame:.
+        let host: Retained<MaterialHostView> =
+            unsafe { msg_send![MaterialHostView::alloc(mtm), initWithFrame: NSRect::ZERO] };
+        host.setHidden(true);
+        host.setWantsLayer(true);
+        host.setLayerUsesCoreImageFilters(true);
+        // SAFETY: Public Core Image and Core Animation API on the main
+        // thread: +[CIFilter filterWithName:] returns an autoreleased
+        // filter (or nil); setDefaults / setValue:forKey: configure its
+        // documented inputs; -[NSView setBackgroundFilters:] takes an
+        // NSArray of CIFilter; +layer returns an autoreleased CALayer
+        // whose contents may be an NSImage on macOS; setMask: retains it.
+        let mask = unsafe {
+            let blur: Option<Retained<AnyObject>> =
+                msg_send![filter_class, filterWithName: &*NSString::from_str("CIGaussianBlur")];
+            let blur = blur.context("CIGaussianBlur is unavailable")?;
+            let _: () = msg_send![&*blur, setDefaults];
+            let radius = objc2_foundation::NSNumber::new_f64(layer.radius);
+            let _: () =
+                msg_send![&*blur, setValue: &*radius, forKey: &*NSString::from_str("inputRadius")];
+            // Blur sRGB-encoded values, as native mixes them: Core Image
+            // blurs in linear light, which brightened the blurred band (up
+            // to 8 levels in dark, 4 in light).
+            let to_srgb: Option<Retained<AnyObject>> = msg_send![
+                filter_class,
+                filterWithName: &*NSString::from_str("CILinearToSRGBToneCurve")
+            ];
+            let to_linear: Option<Retained<AnyObject>> = msg_send![
+                filter_class,
+                filterWithName: &*NSString::from_str("CISRGBToneCurveToLinear")
+            ];
+            let to_srgb = to_srgb.context("CILinearToSRGBToneCurve is unavailable")?;
+            let to_linear = to_linear.context("CISRGBToneCurveToLinear is unavailable")?;
+            let _: () = msg_send![&*to_srgb, setDefaults];
+            let _: () = msg_send![&*to_linear, setDefaults];
+            let filters = NSArray::from_retained_slice(&[to_srgb, blur, to_linear]);
+            let _: () = msg_send![&*host, setBackgroundFilters: &*filters];
+            let mask: Retained<AnyObject> = msg_send![layer_class, layer];
+            let image = scroll_edge_blur_profile(layer);
+            let _: () = msg_send![&*mask, setContents: &*image];
+            let _: () = msg_send![&*mask, setContentsGravity: &*NSString::from_str("resize")];
+            let host_layer: Option<Retained<AnyObject>> = msg_send![&*host, layer];
+            let host_layer = host_layer.context("The blur host has no layer")?;
+            let _: () = msg_send![&*host_layer, setMask: &*mask];
+            mask
+        };
+        parent.addSubview_positioned_relativeTo(
+            &host,
+            NSWindowOrderingMode::Above,
+            Some(&renderer),
+        );
+        Ok(Self {
+            host,
+            mask,
+            presentation: Cell::new(None),
+            visible: Cell::new(false),
+        })
+    }
+
+    fn hide(&self) {
+        if self.visible.replace(false) {
+            self.host.setHidden(true);
+        }
+    }
+
+    /// Place the blur over `bounds`, clipped to `visible` (renderer
+    /// coordinates); the mask keeps the band's full-size profile.
+    pub(super) fn update(&self, bounds: Bounds<Pixels>, visible: Bounds<Pixels>, window: &Window) {
+        let Ok(renderer) = renderer_view(window) else {
+            self.hide();
+            return;
+        };
+        let Some(parent) = parent_view(&renderer) else {
+            self.hide();
+            return;
+        };
+        let Some(frame) = parent_frame(&renderer, &parent, visible) else {
+            self.hide();
+            return;
+        };
+        let presentation = BlurPresentation {
+            frame,
+            mask_frame: inner_frame(bounds, visible),
+            scale: renderer
+                .window()
+                .map_or(2., |window| window.backingScaleFactor()),
+        };
+        if self.presentation.replace(Some(presentation)) != Some(presentation) {
+            self.host.setFrame(frame);
+            // SAFETY: CALayer geometry setters with CGRect / CGFloat values.
+            unsafe {
+                let _: () = msg_send![&*self.mask, setFrame: presentation.mask_frame];
+                let _: () = msg_send![&*self.mask, setContentsScale: presentation.scale];
+            }
+        }
+        if !self.visible.replace(true) {
+            self.host.setHidden(false);
+        }
+    }
+}
+
+impl Drop for ScrollEdgeBlur {
     fn drop(&mut self) {
         self.host.removeFromSuperview();
     }
+}
+
+/// Over what part of the pocket, from its top, the blur rises from half to
+/// full: 3 pt. At the window's top edge the blur samples past the view and
+/// bled white (light, top 2 pt 244 to 237 against native 236) or dark (35
+/// against 38); with no blur at the edge a row there showed a crisp edge, as
+/// if it ran out of the window (icon edge contrast 24 against native 12).
+/// Half strength reads 239 / 35 and 15.
+const BLUR_TOP_RISE: f64 = 3. / 62.;
+
+/// The blur's strength at `t` (a fraction of the pocket from its top).
+fn blur_strength(layer: BlurLayer, t: f64) -> f64 {
+    if t < BLUR_TOP_RISE {
+        0.5 + 0.5 * t / BLUR_TOP_RISE
+    } else if t <= layer.full_until {
+        1.
+    } else {
+        // Smoothstep, so rows enter the blur gradually.
+        let x = ((layer.zero_at - t) / (layer.zero_at - layer.full_until).max(1e-6)).clamp(0., 1.);
+        x * x * (3. - 2. * x)
+    }
+}
+
+/// A blur layer's mask, top to bottom over the band (alpha is the strength),
+/// fading out over the last `BLUR_TRAILING_FADE` of its width.
+fn scroll_edge_blur_profile(layer: BlurLayer) -> Retained<NSImage> {
+    let draw = block2::RcBlock::new(move |rect: NSRect| -> objc2::runtime::Bool {
+        // Flipped drawing context: y runs top to bottom.
+        let rows = 256;
+        let columns = 64;
+        for row in 0..rows {
+            let t = (f64::from(row) + 0.5) / f64::from(rows);
+            let strength = blur_strength(layer, t);
+            for column in 0..columns {
+                let u = (f64::from(column) + 0.5) / f64::from(columns);
+                let edge = ((1. - u) / BLUR_TRAILING_FADE).clamp(0., 1.);
+                NSColor::colorWithSRGBRed_green_blue_alpha(0., 0., 0., strength * edge).setFill();
+                NSBezierPath::fillRect(NSRect::new(
+                    NSPoint::new(
+                        rect.size.width * f64::from(column) / f64::from(columns),
+                        rect.size.height * f64::from(row) / f64::from(rows),
+                    ),
+                    NSSize::new(
+                        rect.size.width / f64::from(columns) + 0.01,
+                        rect.size.height / f64::from(rows) + 0.01,
+                    ),
+                ));
+            }
+        }
+        objc2::runtime::Bool::YES
+    });
+    NSImage::imageWithSize_flipped_drawingHandler(NSSize::new(64., 256.), true, &draw)
 }
 
 /// The owner is retained before opening a GPUI popup, without extending a
@@ -1402,67 +1423,6 @@ pub(super) fn toolbar_inset(window: &Window) -> Pixels {
 
 #[cfg(test)]
 mod tests {
-    /// Tint stripping only proceeds for a tree with a backdrop and a tint
-    /// (a chameleon layer or a saturation filter); anything else is left
-    /// untouched and reported unsupported.
-    #[test]
-    fn material_tint_is_stripped_only_from_a_recognised_layer_tree() {
-        use super::MaterialLayers;
-        let tree = |layers: &[(&str, &[&str])]| {
-            let mut found = MaterialLayers::default();
-            for (class_name, filters) in layers {
-                let filters: Vec<String> = filters.iter().map(|f| f.to_string()).collect();
-                found.note(class_name, &filters);
-            }
-            found.supported()
-        };
-        assert!(tree(&[
-            ("CALayer", &[]),
-            ("CABackdropLayer", &[]),
-            ("CAChameleonLayer", &[])
-        ]));
-        assert!(tree(&[
-            ("CALayer", &[]),
-            (
-                "CABackdropLayer",
-                &["<CAFilter: colorSaturate inputAmount = 1.4>"]
-            )
-        ]));
-        assert!(
-            !tree(&[("CALayer", &[]), ("CAChameleonLayer", &[])]),
-            "no blur"
-        );
-        assert!(
-            !tree(&[("CALayer", &[]), ("CABackdropLayer", &[])]),
-            "no tint"
-        );
-        assert!(!tree(&[("SomeFutureLayer", &[])]), "unknown");
-    }
-
-    /// A rejection is reported once, as the transition from supported (or
-    /// unknown) to unsupported, including for an overlay that was already
-    /// shown with a recognised tree; it is final.
-    #[test]
-    fn layer_support_reports_the_visible_to_unsupported_transition_once() {
-        let support = super::LayerSupport::default();
-        assert!(support.supported(), "unknown until AppKit builds layers");
-        assert!(!support.record(true), "recognised: shown, nothing to do");
-        assert!(support.supported());
-        assert!(
-            support.record(false),
-            "visible -> unsupported: hide and repaint"
-        );
-        assert!(!support.supported());
-        assert!(!support.record(false), "reported once");
-        assert!(!support.record(true), "final");
-        assert!(!support.supported());
-        let fresh = super::LayerSupport::default();
-        assert!(
-            fresh.record(false),
-            "unknown -> unsupported: hide and repaint"
-        );
-    }
-
     /// The sidebar glass backdrop resolves its light and dark token.
     #[test]
     fn sidebar_backdrop_resolves_the_calibrated_token_per_appearance() {

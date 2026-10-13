@@ -27,6 +27,11 @@
   used a top margin, which GPUI's virtualized list does not measure, so each
   later group header overlapped the row above it and the rows below drifted
   13 pt upward per group.
+- `sidebar` insets its rows 10 pt from each side (was 8 pt; native rows
+  select from x 10 to 210 of the 220 pt sidebar), with 6 pt row and 4 pt
+  group-header padding inside, so labels stay 46 pt and group titles 14 pt
+  from the sidebar's edge. The gallery focuses its sidebar at launch, so the
+  selection shows the native emphasized accent.
 - The native toolbar title starts 20 pt after the sidebar (240 pt for the
   220 pt sidebar; was 228), as in a SwiftUI `NavigationSplitView` (spec
   §5.3).
@@ -41,11 +46,10 @@
   would not change anything. The backdrop is now a plain opaque view that
   redraws per appearance: a custom approximation of the native sidebar
   glass, calibrated through the measured glass response (#C9C9C9 light,
-  #080808 dark). Verified by capture in an active window (polish3-check):
-  the sidebar measures 236 against the native 237 in light and 38 against
-  38 in dark (light #D9D9D9 had measured 242 in polish2-check). Inactive
-  windows, Increase Contrast and other appearances are not calibrated. The local view dump now also prints the
-  glass's private configuration, so the native setting can be identified.
+  #080808 dark). Verified by capture in an active window: the sidebar
+  measures 236 against the native 237 in light and 38 against 38 in dark
+  (light #D9D9D9 had measured 242). Inactive windows, Increase Contrast and
+  other appearances are not calibrated.
   Fallback paint (older systems, headless, Reduce Transparency) is
   unchanged, and so are `native_material` and `native_toolbar_group`, which
   still sample behind the window.
@@ -57,35 +61,72 @@
   the row content (was 12 and 28; native 29 and 46 pt in the window). The
   regular-size ink boxes are within 1 px of the native ones at 2x.
 - Added `native::scroll_edge_effect(id)`: AppKit's soft scroll-edge effect
-  (the scroll pocket a SwiftUI sidebar keeps under the titlebar). While
-  `active`, it blurs the GPUI content under its band with an in-window
-  material above the renderer, full strength over the band's top half and
-  fading out toward its bottom edge; it ignores hit testing. A partly
-  clipped band keeps its full-size fade inside a clipping host. The
-  material's tint is stripped like GPUI's own blurred backdrop, but only
-  when its layer tree has the recognised backdrop and tint layers;
-  otherwise the material is left untouched and the effect paints its
-  fallback instead. Without real system materials it paints a fade from its
-  `fallback_color`. Restriction: the native blur sits above the whole
-  renderer, so GPUI overlays painted over the band (inline sheets and
-  dialogs, toasts, tooltips) are blurred too; deactivate it while they are
-  open. The gallery sidebar list now starts at the top of the window with a
-  spacer row the toolbar's height, so rows scroll under the titlebar and
-  are blurred there; the effect is off while the gallery's inline sheet or
-  dialog is open. Keyboard navigation reveals the selected row fully below
-  the titlebar band from measured row bounds (small rows, zoom and partly
-  scrolled rows included), settling over a second layout when the row was
-  outside the rendered range.
+  (the scroll pocket a SwiftUI sidebar keeps under the titlebar), matched to
+  the SwiftUI sidebar at scroll offsets 192 to 240 pt. The pocket covers the
+  titlebar band plus `tokens::SCROLL_EDGE_OVERHANG` (10 pt) below it, 62 pt
+  for the unified toolbar, as the native pocket layer does. Rows stay faintly
+  visible up to the window top, increasingly faded and blurred toward it, and
+  a row at the band's lower edge fades evenly, icon and text alike, with no
+  line through it. While `active`, the element paints the region's
+  `surface_color` at alpha 0.85 down to 31.5 pt of the pocket, falling
+  linearly to zero at 61.5 pt (the native pocket's gradient: rows at 52 to 58
+  pt keep 0.73 to 0.91 of their contrast, as measured), and blurs the content
+  near the top with AppKit's public background filters: a `CIGaussianBlur` of
+  radius 1.4 on sRGB-encoded values (between `CILinearToSRGBToneCurve` and
+  `CISRGBToneCurveToLinear`) on a layer-backed view above the renderer, at
+  half strength at the very top rising to full at 3 pt, full to 28 pt and
+  easing out (smoothstep) to none at 60 pt (fitted to the SwiftUI sidebar:
+  rows under the band stay see-through, softly blurred and readable, as
+  native, and rows at the band's lower edge are only faded), fading out over
+  the last 12 pt of the width so it does not pull in what lies outside. The
+  blur's background filters see only GPUI's own layer, not the system glass
+  under it, so the added `native::scroll_edge_underlay` puts an opaque surface
+  behind the scrolled content in the pocket while the effect is active and
+  the added `native::scroll_edge_blur_available` (without it the blur darkened
+  the band); it matches the glass's measured output, so it is not seen. Without the filters (older systems, headless
+  windows, Reduce Transparency) the cover alone remains;
+  `GPUI_MACOS_SCROLL_EDGE_BLUR=0` turns the blur off for debugging and
+  `GPUI_MACOS_SCROLL_EDGE_RADIUS` overrides its radius. No private API is
+  used: an AppKit in-window material and a private `CABackdropLayer`, tried
+  first, were dropped. Restriction: the blur view sits above the whole
+  renderer, so GPUI overlays painted over the pocket are blurred too; the
+  gallery turns the effect off while its inline sheet or dialog is open. The
+  gallery sidebar list now starts at the top of the window with a spacer row
+  the toolbar's height, so rows scroll under the titlebar. Keyboard navigation
+  reveals the selected row fully below the titlebar band from measured row
+  bounds (small rows, zoom and partly scrolled rows included), settling over a
+  second layout when the row was outside the rendered range.
+- Sidebar row titles are full-strength ink (pure black in light mode, white
+  in dark), as the SwiftUI sidebar draws them over its material (measured
+  0 / 255 in the 2x captures; `labelColor` rendered 36 / 219). Other rows
+  keep `labelColor`.
+- The sidebar glass no longer brightens toward the sidebar's trailing edge.
+  Its blur sampled the window background beyond the clipped sidebar (white
+  / #1E1E1E), lifting the last ~44 pt from 236 to 244 in light and 38 to 43
+  in dark. The measured sidebar surface (#ECECEC / #262626) now covers the
+  glass in a 48 pt strip along the trailing edge, inside the sidebar (a
+  strip in the backdrop colour beyond the edge, tried first, showed through
+  the transparent header band).
+- The sidebar glass extends 32 pt past the sidebar on every side inside its
+  clipping host. Regular glass drew a bright rim and a refraction band about
+  20 pt wide along the sidebar's edges (255 at the top edge, 232 at 4 to
+  8 pt, against the flat native 237 / 38), which read as a white band under
+  the window controls at rest.
+- Added `sidebar_surface(window, cx)`: the opaque colour a `sidebar` shows
+  behind its rows (with real glass #ECECEC / #262626 as measured by
+  capture; otherwise its fallback material, composited over the window
+  background where translucent), for covers such as the scroll-edge effect.
 - Added `titlebar_background(id, cx)`: the titlebar band over a detail
   column, as in SwiftUI's `NavigationSplitView` (`NSTitlebarBackgroundView`).
-  It is clear until the pointer is over it, then shows the sidebar's surface
-  (#262626 in the dark reference screenshot, the same as its sidebar) with a
-  hairline at its bottom edge (white @0.07 dark, measured; black @0.05 light,
-  estimated from the scroll pocket's fill). `revealed(true)` shows it
-  without the pointer. Its hover follows pointer events only: it hides when
-  the pointer leaves the window (also through the titlebar) and stays hidden
-  through redraws until the pointer returns, and keyboard input does not
-  hide it. The gallery's detail header uses it.
+  It is clear until the pointer is over it, then shows a faint fill (none in
+  light mode; white @0.034 in dark, 37.4 on 29.7) and a one-device-pixel
+  hairline (at any zoom) directly below the band (black @0.10 light, 229 on 255; white
+  @0.071 dark, 46 on 30), from the SwiftUI reference with and without the
+  pointer over the band. There is no glass or blur. `revealed(true)` shows
+  it without the pointer. Its hover follows pointer events only: it hides
+  when the pointer leaves the window (also through the titlebar) and stays
+  hidden through redraws until the pointer returns, and keyboard input does
+  not hide it. The gallery's detail header uses it.
 
 ### Changed
 

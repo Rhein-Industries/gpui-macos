@@ -225,8 +225,9 @@ fn sidebar_geometry_matches_native_metrics_and_selection_tracks_window_activity(
             let next = cx.debug_bounds("sidebar-documents").unwrap();
             cx.update(|window, cx| {
                 assert_eq!(window.is_window_active(), active);
-                assert_eq!(selected.origin.x, px(8.));
-                assert_eq!(selected.size.width, px(204.));
+                // Native rows select from x 10 to 210 of the 220 pt sidebar.
+                assert_eq!(selected.origin.x, px(10.));
+                assert_eq!(selected.size.width, px(200.));
                 assert_eq!(
                     selected.size.height,
                     gpui_macos::native::sidebar_metrics().row_height

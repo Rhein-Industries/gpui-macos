@@ -82,8 +82,9 @@ that backdrop rather than the desktop. The earlier `.contentBackground` layer
 was effective (our glass measured exactly free regular glass over the window
 colour), but the native sidebar glass is darker than that; the backdrop is now
 a custom approximation calibrated so regular glass matches the native colour
-in an active window (verified by capture: within 1/255 light, exact dark). Anchored popup factories use separate GPUI windows, whose
-original content views are embedded in `NSGlassEffectView.contentView`.
+in an active window (verified by capture: within 1/255 light, exact dark).
+Anchored popup factories use separate GPUI windows, whose original content
+views are embedded in `NSGlassEffectView.contentView`.
 Their real material samples the owning GPUI canvas underneath, while the
 unchanged renderer draws interactive foreground content. Keeping the original
 content view preserves AccessKit's dynamically installed accessibility adapter.

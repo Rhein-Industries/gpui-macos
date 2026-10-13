@@ -201,6 +201,10 @@ const ALTERNATING_ROW_LIGHT: u32 = 0xf4f5f5;
 const ALTERNATING_ROW_DARK_ALPHA: f32 = 0.047;
 /// `tertiary_system_fill` ink alpha, spec §2A.2.
 const TERTIARY_FILL: f32 = 0.047;
+/// Sidebar row selection inset from each side of the sidebar, in points:
+/// native rows select from x 10 to 210 of the 220 pt sidebar (capture,
+/// offset 240, light and dark).
+pub(crate) const SIDEBAR_ROW_INSET: f32 = 10.;
 /// Sidebar row selection, spec §6.4 (C20): unfocused key window ink alpha
 /// over the material (light / dark).
 pub(crate) const SIDEBAR_UNEMPHASIZED: [f32; 2] = [0.085, 0.088];
@@ -219,20 +223,37 @@ pub(crate) const SIDEBAR_MATERIAL_INACTIVE: [u32; 2] = [0xf0f0f0, 0x282828];
 pub(crate) const SIDEBAR_MATERIAL_RT: [[u32; 2]; 2] = [[0xf6f6f6, 0xececec], [0x383838, 0x141414]];
 /// The opaque backdrop under the sidebar's regular Liquid Glass (light /
 /// dark): a custom approximation of a sidebar glass configuration with no
-/// public API, verified by capture in an active window (polish3-check list
-/// capture: sidebar 236 against the native 237 light, 38 against 38 dark) (native samples the window colour
-/// #FFFFFF / #1E1E1E and shows #EDEDED / #262626; ours over that colour
-/// measured #FEFEFE / #373737). Dark #080808 is interpolated through the
-/// measured regular-glass response (spec §7.1; `pass2.phase_a.materials`
-/// NSGlassEffectView.regular, black to #202020, gray to #7F7F7F) and matched
-/// the native (38, 38, 38) in the polish2-check list capture. Light was
+/// public API, verified by capture in an active window (sidebar 236
+/// against the native 237 light, 38 against 38 dark). Native samples the
+/// window colour #FFFFFF / #1E1E1E and shows #EDEDED / #262626; ours over
+/// that colour measured #FEFEFE / #373737. Dark #080808 is interpolated
+/// through the measured regular-glass response (spec §7.1; regular
+/// `NSGlassEffectView`, black to #202020, gray to #7F7F7F) and matched the
+/// native (38, 38, 38) in a list capture. Light was
 /// #D9D9D9, which measured (242, 242, 242) against the native (237, 237, 237)
 /// there; with #FFFFFF giving 254, the response is about 0.316 per step, so
 /// 237 needs about #C9C9C9.
 pub(crate) const SIDEBAR_GLASS_BACKDROP: [u32; 2] = [0xc9c9c9, 0x080808];
+/// How far the sidebar glass extends past the sidebar on every side, in
+/// points, inside its clipping host. Regular glass draws an edge rim and a
+/// refraction band: in 2x captures at rest the top edge reads 255 / 99, then
+/// 232 at 4 to 8 pt, settling at 236 by about 20 pt, and the trailing edge
+/// rises to 239 to 242 from about 20 pt in; the native sidebar (the SwiftUI
+/// reference app, tools/swiftui-reference) is flat 237 / 38. 32 pt keeps
+/// that band outside the clip with margin.
+pub(crate) const SIDEBAR_GLASS_EDGE_OUTSET: f32 = 32.;
+/// Width, in points, of the strip along the sidebar's trailing edge where
+/// the sidebar surface ([`SIDEBAR_GLASS_SURFACE`]) covers the glass, inside
+/// the sidebar. The glass blurs what lies past its clipping host and reached
+/// ~44 pt into the sidebar, brightening it from 236 to 244 light and 38 to
+/// 43 dark (our 2x captures at rest, x 352 to 440 px; native is flat
+/// 237 / 38). A strip beyond the edge showed in the transparent header
+/// band, so the fix stays inside.
+pub(crate) const SIDEBAR_GLASS_EDGE_STRIP: f32 = 48.;
 /// Sidebar row symbol: the row's label size (13 pt regular) at SF Symbols'
-/// large scale and medium weight, drawn at its natural size. Matched to the
-/// SwiftUI sidebar in the polish-check captures: ink boxes 30 x 31, 40 x 34,
+/// large scale and medium weight, drawn at its natural size. Measured
+/// against the SwiftUI reference app (tools/swiftui-reference) sidebar: ink
+/// boxes 30 x 31, 40 x 34,
 /// 39 x 31 and 32 x 32 px at 2x for `square.grid.2x2`, `paintpalette`,
 /// `macwindow` and `viewfinder` (13 pt large medium renders 31 x 31,
 /// 40 x 34, 39 x 31, 32 x 32; 16 pt medium-scale regular is next best).
@@ -240,15 +261,48 @@ pub(crate) const SIDEBAR_SYMBOL_WEIGHT: FontWeight = FontWeight::MEDIUM;
 /// The symbol slot before a sidebar row title at the regular row size: the
 /// symbol is centred 13 pt after the row content edge and the title starts
 /// 4 pt after the slot (native symbol centre 29 pt and title origin 46 pt
-/// for content at 16 pt, polish-check sidebar captures). Scaled with the
+/// for content at 16 pt, SwiftUI reference app). Scaled with the
 /// AppKit icon column (24 pt) for the small and large row sizes (E).
 pub(crate) const SIDEBAR_SYMBOL_SLOT: f32 = 26.;
-/// The detail column's titlebar band while the pointer is over it: a
-/// hairline at its bottom edge, ink alpha (light / dark). Dark measured
-/// #2E2E2E over the #1E1E1E content (white @0.07) in the SwiftUI reference
-/// hover screenshot; light is the black @0.05 hard scroll-pocket fill in the
-/// SwiftUI view dump (E for the titlebar band).
-pub(crate) const TITLEBAR_BAND_SEPARATOR: [f32; 2] = [0.05, 0.07];
+/// The detail column's titlebar band while the pointer is over it (measured
+/// against the SwiftUI reference app, tools/swiftui-reference, at 2x with
+/// the pointer over and away from the band, x 650 to 850 pt): a fill over
+/// the band, ink alpha
+/// (light / dark). Light shows none (255 on 255); dark 37.4 on 29.7, white
+/// @0.034. No blur or glass.
+pub(crate) const TITLEBAR_BAND_FILL: [f32; 2] = [0., 0.034];
+/// The band's hairline, ink alpha (light / dark): one device pixel directly
+/// below the band (window y 52 to 52.5 pt at 2x), from the sidebar's
+/// trailing edge to the window's. Light 229 on 255 (black @0.10), dark 46 on
+/// 30 (white @0.071), same measurement.
+pub(crate) const TITLEBAR_BAND_SEPARATOR: [f32; 2] = [0.10, 0.071];
+/// The hairline's thickness in device pixels, at any zoom.
+pub(crate) const TITLEBAR_BAND_SEPARATOR_WIDTH: f32 = 1.;
+/// The sidebar surface as seen with real glass (light / dark): our glass over
+/// [`SIDEBAR_GLASS_BACKDROP`] measured 236 / 38 by capture, the native
+/// 237 / 38. A scroll-edge cover over the sidebar uses it.
+pub(crate) const SIDEBAR_GLASS_SURFACE: [u32; 2] = [0xececec, 0x262626];
+/// How far, in points, the scroll-edge effect reaches below the titlebar
+/// band (like the toolbar inset, native points that do not follow zoom).
+/// The SwiftUI sidebar's scroll pocket layer is 62 pt tall for a 52 pt band
+/// (view dump: frame (0, -10, 220, 62) in unflipped coordinates, so it spans
+/// from the window top to 10 pt below the band): a row just below the band
+/// is still faded, to 0.73, 0.80, 0.85 and 0.91 of its contrast at 52, 54,
+/// 56 and 58 pt (2x shots at scroll offset 192).
+pub const SCROLL_EDGE_OVERHANG: f32 = 10.;
+/// Scroll-edge cover over the pocket (the band plus
+/// [`SCROLL_EDGE_OVERHANG`]), as fractions of its height from the top: the
+/// surface at alpha `SCROLL_EDGE_COVER_ALPHA` down to
+/// `SCROLL_EDGE_COVER_SOLID` (31.5 of 62 pt), then falling linearly to zero
+/// at `SCROLL_EDGE_COVER_END` (61.5 pt). This is the native pocket's
+/// `destIn` gradient (alpha 0 to 0.85 from 0.5 to 30.5 pt above the bottom of
+/// its 62 pt layer, clamped beyond, view dump) in that geometry; it
+/// predicts 0.73 / 0.79 / 0.84 / 0.90 of a row's contrast at 52 / 54 / 56 /
+/// 58 pt against the measured 0.73 / 0.80 / 0.85 / 0.91, and it never fully
+/// hides content. Icons and text fade together under it.
+pub(crate) const SCROLL_EDGE_COVER_ALPHA: f32 = 0.85;
+pub(crate) const SCROLL_EDGE_COVER_SOLID: f32 = 31.5 / 62.;
+pub(crate) const SCROLL_EDGE_COVER_END: f32 = 61.5 / 62.;
 /// Sidebar group header leading space before every group but the first,
 /// spec §5.2 (AppKit source list: later groups have 13 pt of leading space;
 /// docs/comparison.md, docs/native-metrics.json).

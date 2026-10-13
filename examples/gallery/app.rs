@@ -134,6 +134,10 @@ struct Gallery {
     navigation_band: gpui_kit::Pixels,
     /// A navigation item whose reveal finishes after its next layout.
     pending_reveal: Option<usize>,
+    /// `--scroll-sidebar <pt>`: applied once the list has been laid out.
+    pending_sidebar_scroll: Option<f32>,
+    /// `--reveal-header`: the titlebar band is shown without the pointer.
+    reveal_header: bool,
     navigation_rows: Vec<(bool, &'static str)>,
     collapsed_navigation_groups: std::collections::HashSet<&'static str>,
     sidebar_hidden: bool,
@@ -451,6 +455,8 @@ impl Gallery {
             navigation_focus: cx.focus_handle(),
             navigation_band: rems(3.25).to_pixels(window.rem_size()),
             pending_reveal: None,
+            pending_sidebar_scroll: sidebar_scroll_on_launch(),
+            reveal_header: reveal_header_on_launch(),
             // One leading spacer row (the titlebar band) and every row.
             navigation_list: gpui_kit::ListState::new(
                 1 + GROUPS.len() + components().count(),
@@ -3383,6 +3389,18 @@ impl Render for Gallery {
             rems(3.25).to_pixels(window.rem_size())
         };
         self.navigation_band = toolbar_height;
+        if let Some(points) = self.pending_sidebar_scroll
+            && self.navigation_list.viewport_bounds().size.height > px(0.)
+        {
+            // The first layout measured the rows the scroll passes over.
+            self.pending_sidebar_scroll = None;
+            self.navigation_list.scroll_by(px(points));
+        } else if self.pending_sidebar_scroll.is_some() {
+            let view = cx.entity().downgrade();
+            cx.defer(move |cx| {
+                let _ = view.update(cx, |_, cx| cx.notify());
+            });
+        }
         if let Some(item) = self.pending_reveal {
             // Once a frame has laid the row out at the top, settle it below
             // the band; this frame then lays out the corrected offset.
@@ -3398,6 +3416,12 @@ impl Render for Gallery {
                 });
             }
         }
+        // The scroll pocket reaches 10 pt below the titlebar band.
+        let scroll_pocket_height = toolbar_height + px(gpui_macos::tokens::SCROLL_EDGE_OVERHANG);
+        let sidebar_scrolled = {
+            let top = self.navigation_list.logical_scroll_top();
+            (top.item_ix > 0 || top.offset_in_item > px(0.)) && !self.sheet_open && !self.modal_open
+        };
         let navigation = sidebar("component-sidebar", cx)
             .debug_selector(|| "component-sidebar".into())
             .track_focus(&self.navigation_focus)
@@ -3408,6 +3432,21 @@ impl Render for Gallery {
             // top, with a spacer row the band's height (spec §7.1 view dump:
             // the sidebar list is full height with a 52 pt scroll pocket).
             .pt(px(0.))
+            // The scroll pocket's opaque surface behind the rows: the blur
+            // must not sample through to the system glass.
+            .when(
+                sidebar_scrolled && native::scroll_edge_blur_available(window, cx),
+                |sidebar| {
+                    sidebar.child(
+                        native::scroll_edge_underlay(sidebar_surface(window, cx))
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .w_full()
+                            .h(scroll_pocket_height),
+                    )
+                },
+            )
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
                 if event.keystroke.modifiers.modified() {
                     return;
@@ -3500,22 +3539,18 @@ impl Render for Gallery {
                 .size_full(),
             )
             .child(
-                // The scroll pocket: blur rows scrolled under the band.
+                // The scroll pocket: rows scrolled under the band fade and
+                // soften below the window controls. Its blur view sits above
+                // the renderer, so it is off while the inline sheet or
+                // dialog covers the band.
                 native::scroll_edge_effect("component-sidebar-edge")
-                    // The native blur sits above the whole renderer, so it
-                    // is off while the inline sheet or dialog covers the band.
-                    .active({
-                        let top = self.navigation_list.logical_scroll_top();
-                        (top.item_ix > 0 || top.offset_in_item > px(0.))
-                            && !self.sheet_open
-                            && !self.modal_open
-                    })
-                    .fallback_color(t.sidebar_material(window.is_window_active()))
+                    .active(sidebar_scrolled)
+                    .surface_color(sidebar_surface(window, cx))
                     .absolute()
                     .top_0()
                     .left_0()
                     .w_full()
-                    .h(toolbar_height),
+                    .h(scroll_pocket_height),
             );
         let zoom = self.zoom_percent(window);
         if let Some(bar) = &self.native_toolbar {
@@ -3533,6 +3568,7 @@ impl Render for Gallery {
             // Clear until the pointer is over it, then the titlebar
             // background, as in SwiftUI's NavigationSplitView detail column.
             titlebar_background("detail-titlebar", cx)
+                .revealed(self.reveal_header)
                 .h(native::native_toolbar_inset(window))
                 .into_any_element()
         } else {
@@ -3951,7 +3987,13 @@ pub fn run() {
                     ..gpui_macos::native_window_options("GPUI macOS", cx)
                 },
                 cx,
-                |window, cx| cx.new(|cx| Gallery::new(window, cx)),
+                |window, cx| {
+                    let gallery = cx.new(|cx| Gallery::new(window, cx));
+                    // Like a SwiftUI sidebar, the navigation list starts as
+                    // the first responder, so its selection is emphasized.
+                    gallery.read(cx).navigation_focus.clone().focus(window, cx);
+                    gallery
+                },
             )
             .expect("open component gallery");
             cx.activate(true);
@@ -3982,6 +4024,37 @@ fn initial_page() -> &'static str {
         return page;
     }
     "overview"
+}
+
+/// `--reveal-header` (captures): show the detail titlebar band as if the
+/// pointer were over it.
+fn reveal_header_on_launch() -> bool {
+    #[cfg(not(target_family = "wasm"))]
+    if std::env::args()
+        .skip(1)
+        .any(|argument| argument == "--reveal-header")
+    {
+        return true;
+    }
+    false
+}
+
+/// `--scroll-sidebar <pt>` (captures): scroll the sidebar list by that many
+/// points after the first layout, so rows sit under the titlebar.
+fn sidebar_scroll_on_launch() -> Option<f32> {
+    #[cfg(not(target_family = "wasm"))]
+    {
+        let mut arguments = std::env::args().skip(1);
+        while let Some(argument) = arguments.next() {
+            if argument == "--scroll-sidebar" {
+                return arguments
+                    .next()
+                    .and_then(|value| value.parse::<f32>().ok())
+                    .filter(|points| points.is_finite() && *points > 0.);
+            }
+        }
+    }
+    None
 }
 
 /// `--open`: present the initial page's primary popup on launch.

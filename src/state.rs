@@ -402,16 +402,21 @@ pub(crate) fn paint(role: PaintRole, part: Part, states: States, theme: &Theme) 
                 (false, false, false) => color(SIDEBAR_INACTIVE[dark]),
             }
         }
+        // Sidebar row titles are full-strength ink: the SwiftUI sidebar draws
+        // its labels vibrant over the material, measured pure black (0) in
+        // light and white (255) in dark in the 2x captures, where `labelColor`
+        // (216 / 255) rendered 36 / 219. Other rows keep `labelColor`.
         (
             PaintRole::Row {
+                kind,
                 selected,
                 emphasized,
-                ..
             },
             Part::Label,
         ) => match (disabled, selected && emphasized && active) {
             (true, _) => theme.tertiary_label(),
             (false, true) => white,
+            (false, false) if kind == RowKind::Sidebar => ink,
             (false, false) => label,
         },
 
@@ -1140,7 +1145,8 @@ mod tests {
                 ink_at(&t, if dark { 0.088 } else { 0.085 }),
                 "unemphasized key",
             );
-            assert_eq!(label(row(true, false), rest()), t.foreground);
+            // Sidebar titles are full-strength ink (measured pure black / white).
+            assert_eq!(label(row(true, false), rest()), ink_at(&t, 1.));
             // Inactive window: opaque #E5E5E5 / #363636, emphasized or not.
             for emphasized in [true, false] {
                 assert_close(
@@ -1149,11 +1155,11 @@ mod tests {
                     "inactive",
                 );
                 assert_eq!(fill(row(true, emphasized), inactive()).a, 1.);
-                assert_eq!(label(row(true, emphasized), inactive()), t.foreground);
+                assert_eq!(label(row(true, emphasized), inactive()), ink_at(&t, 1.));
             }
             // Unselected rows stay clear; pressing changes nothing.
             assert_eq!(fill(row(false, true), rest()).a, 0.);
-            assert_eq!(label(row(false, true), rest()), t.foreground);
+            assert_eq!(label(row(false, true), rest()), ink_at(&t, 1.));
             assert_eq!(
                 fill(row(true, true), pressed()),
                 fill(row(true, true), rest())
