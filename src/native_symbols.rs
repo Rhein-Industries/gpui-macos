@@ -6,12 +6,18 @@ use crate::IconName;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use gpui_kit::{FontWeight, Hsla, RenderImage, Rgba};
 use image::{Frame, ImageEncoder as _, RgbaImage, codecs::png::PngEncoder};
-use objc2::{AnyThread, rc::autoreleasepool};
-use objc2_app_kit::{
-    NSBitmapFormat, NSBitmapImageRep, NSCompositingOperation, NSDeviceRGBColorSpace,
-    NSGraphicsContext, NSImage, NSImageSymbolConfiguration, NSImageSymbolScale,
+use objc2::{
+    AnyThread,
+    rc::{Retained, autoreleasepool},
 };
-use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
+use objc2_app_kit::{
+    NSAffineTransformNSAppKitAdditions, NSBitmapFormat, NSBitmapImageRep, NSCompositingOperation,
+    NSDeviceRGBColorSpace, NSGraphicsContext, NSImage, NSImageSymbolConfiguration,
+    NSImageSymbolScale,
+};
+use objc2_foundation::{
+    NSAffineTransform, NSAffineTransformStruct, NSPoint, NSRect, NSSize, NSString,
+};
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -310,115 +316,151 @@ fn resolve_name(name: IconName) -> Option<String> {
     })
 }
 
+fn configured_symbol(key: &MaskKey) -> Option<Retained<NSImage>> {
+    let symbol = NSImage::imageWithSystemSymbolName_accessibilityDescription(
+        &NSString::from_str(&key.symbol),
+        None,
+    )?;
+    // SF symbols use the same nine optical weights as system typography.
+    let weight = [-0.8, -0.6, -0.4, 0., 0.23, 0.3, 0.4, 0.56, 0.62][key.weight as usize - 1];
+    let (config_points, symbol_scale) = match key.natural {
+        Some((points, true)) => (points, NSImageSymbolScale::Large),
+        Some((points, false)) => (points, NSImageSymbolScale::Medium),
+        None => (key.points, NSImageSymbolScale::Medium),
+    };
+    let config = NSImageSymbolConfiguration::configurationWithPointSize_weight_scale(
+        config_points as f64 / 64.,
+        weight,
+        symbol_scale,
+    )
+    .configurationByApplyingConfiguration(
+        &NSImageSymbolConfiguration::configurationPreferringMonochrome(),
+    );
+    symbol.imageWithSymbolConfiguration(&config)
+}
+
 fn rasterize(key: &MaskKey) -> Option<AlphaMask> {
     autoreleasepool(|_| {
-        let symbol = NSImage::imageWithSystemSymbolName_accessibilityDescription(
-            &NSString::from_str(&key.symbol),
-            None,
-        )?;
-        // SF symbols use the same nine optical weights as system typography.
-        let weight = [-0.8, -0.6, -0.4, 0., 0.23, 0.3, 0.4, 0.56, 0.62][key.weight as usize - 1];
-        let (config_points, symbol_scale) = match key.natural {
-            Some((points, true)) => (points, NSImageSymbolScale::Large),
-            Some((points, false)) => (points, NSImageSymbolScale::Medium),
-            None => (key.points, NSImageSymbolScale::Medium),
-        };
-        let config = NSImageSymbolConfiguration::configurationWithPointSize_weight_scale(
-            config_points as f64 / 64.,
-            weight,
-            symbol_scale,
-        )
-        .configurationByApplyingConfiguration(
-            &NSImageSymbolConfiguration::configurationPreferringMonochrome(),
-        );
-        let symbol = symbol.imageWithSymbolConfiguration(&config)?;
-        let pixels = usize::from(key.pixels);
-        // SAFETY: null planes ask AppKit to allocate and own one interleaved
-        // four-channel, eight-bit buffer. Explicit row length excludes padding.
-        let bitmap = unsafe {
-            NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bitmapFormat_bytesPerRow_bitsPerPixel(
+        let symbol = configured_symbol(key)?;
+        rasterize_symbol(key, &symbol)
+    })
+}
+
+fn rasterize_symbol(key: &MaskKey, symbol: &NSImage) -> Option<AlphaMask> {
+    let pixels = usize::from(key.pixels);
+    // SAFETY: null planes ask AppKit to allocate and own one interleaved
+    // four-channel, eight-bit buffer. Explicit row length excludes padding.
+    let bitmap = unsafe {
+        NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bitmapFormat_bytesPerRow_bitsPerPixel(
                 NSBitmapImageRep::alloc(), std::ptr::null_mut(), pixels as isize, pixels as isize,
                 8, 4, true, false, NSDeviceRGBColorSpace, NSBitmapFormat::empty(),
                 (pixels * 4) as isize, 32,
             )
-        }?;
-        let data = bitmap.bitmapData();
-        if data.is_null() {
-            return None;
-        }
-        // SAFETY: the owned bitmap above allocates pixels * pixels * 4 bytes;
-        // it remains alive through drawing and the final copy of alpha values.
-        unsafe { std::ptr::write_bytes(data, 0, pixels * pixels * 4) };
-        // A natural symbol draws in a point-sized context at the box's pixel
-        // density, so AppKit renders it at its true size. NSImage rounds a
-        // symbol's size to whole points; stretching that size over pixels
-        // would enlarge it (paintpalette at 13 pt large: 44 x 36 px instead
-        // of AppKit's 40 x 34 at 2x).
-        let box_points = key.points as f64 / 64.;
-        if key.natural.is_some() {
-            bitmap.setSize(NSSize::new(box_points, box_points));
-        }
-        let context = NSGraphicsContext::graphicsContextWithBitmapImageRep(&bitmap)?;
-        let intrinsic = symbol.size();
-        if intrinsic.width <= 0. || intrinsic.height <= 0. {
-            return None;
-        }
-        let (extent, fit) = match key.natural {
-            // Natural size in points, shrunk only if it would overflow the box.
-            Some(_) => (
-                box_points,
-                (box_points / intrinsic.width.max(intrinsic.height)).min(1.),
-            ),
-            None => (
-                pixels as f64,
-                pixels as f64 / intrinsic.width.max(intrinsic.height),
-            ),
-        };
-        #[cfg(test)]
-        if key.natural.is_some() {
-            eprintln!(
-                "SF symbol {}: box={}pt pixels={} weight={} natural={:?} intrinsic={}x{}pt bitmap={}x{}pt screen_context={}",
-                key.symbol,
-                box_points,
-                pixels,
-                key.weight,
-                key.natural,
-                intrinsic.width,
-                intrinsic.height,
-                bitmap.size().width,
-                bitmap.size().height,
-                context.isDrawingToScreen()
-            );
-        }
-        let size = NSSize::new(intrinsic.width * fit, intrinsic.height * fit);
-        let rect = NSRect::new(
-            NSPoint::new((extent - size.width) / 2., (extent - size.height) / 2.),
-            size,
+    }?;
+    let data = bitmap.bitmapData();
+    if data.is_null() {
+        return None;
+    }
+    // SAFETY: the owned bitmap above allocates pixels * pixels * 4 bytes;
+    // it remains alive through drawing and the final copy of alpha values.
+    unsafe { std::ptr::write_bytes(data, 0, pixels * pixels * 4) };
+    // Natural symbols use a point-sized context at the box's pixel density.
+    // Draw the original configured representation directly: NSImage's
+    // rectangle drawing can squash it when whole-point image bounds round
+    // down, even when this bitmap context is 2x.
+    let box_points = key.points as f64 / 64.;
+    if key.natural.is_some() {
+        bitmap.setSize(NSSize::new(box_points, box_points));
+    }
+    let context = NSGraphicsContext::graphicsContextWithBitmapImageRep(&bitmap)?;
+    let representation = if key.natural.is_some() {
+        Some(symbol.representations().firstObject()?)
+    } else {
+        None
+    };
+    let intrinsic = representation
+        .as_ref()
+        .map_or_else(|| symbol.size(), |rep| rep.size());
+    if intrinsic.width <= 0. || intrinsic.height <= 0. {
+        return None;
+    }
+    let (extent, fit) = match key.natural {
+        // Natural size in points, shrunk only if it would overflow the box.
+        Some(_) => (
+            box_points,
+            (box_points / intrinsic.width.max(intrinsic.height)).min(1.),
+        ),
+        None => (
+            pixels as f64,
+            pixels as f64 / intrinsic.width.max(intrinsic.height),
+        ),
+    };
+    #[cfg(test)]
+    if key.natural.is_some() {
+        eprintln!(
+            "SF symbol {}: box={}pt pixels={} weight={} natural={:?} intrinsic={}x{}pt bitmap={}x{}pt screen_context={}",
+            key.symbol,
+            box_points,
+            pixels,
+            key.weight,
+            key.natural,
+            intrinsic.width,
+            intrinsic.height,
+            bitmap.size().width,
+            bitmap.size().height,
+            context.isDrawingToScreen()
         );
-        NSGraphicsContext::saveGraphicsState_class();
-        NSGraphicsContext::setCurrentContext(Some(&context));
+    }
+    let size = NSSize::new(intrinsic.width * fit, intrinsic.height * fit);
+    let rect = NSRect::new(
+        NSPoint::new((extent - size.width) / 2., (extent - size.height) / 2.),
+        size,
+    );
+    NSGraphicsContext::saveGraphicsState_class();
+    NSGraphicsContext::setCurrentContext(Some(&context));
+    let drawn = if let Some(rep) = representation {
+        if fit < 1. {
+            let transform = NSAffineTransform::transform();
+            transform.setTransformStruct(NSAffineTransformStruct {
+                m11: fit,
+                m12: 0.,
+                m21: 0.,
+                m22: fit,
+                tX: rect.origin.x,
+                tY: rect.origin.y,
+            });
+            transform.concat();
+            rep.drawAtPoint(NSPoint::new(0., 0.))
+        } else {
+            rep.drawAtPoint(rect.origin)
+        }
+    } else {
         symbol.drawInRect_fromRect_operation_fraction(
             rect,
             NSRect::new(NSPoint::new(0., 0.), NSSize::new(0., 0.)),
             NSCompositingOperation::SourceOver,
             1.,
         );
-        NSGraphicsContext::restoreGraphicsState_class();
-        // SAFETY: identical owned allocation bounds as the initialized buffer.
-        let bytes = unsafe { std::slice::from_raw_parts(data, pixels * pixels * 4) };
-        let alpha = bytes
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .map(|pixel| pixel[3])
-            .collect::<Vec<_>>();
-        if !alpha.iter().any(|alpha| *alpha > 0) {
-            return None;
-        }
-        Some(AlphaMask {
-            pixels: key.pixels,
-            alpha,
-        })
+        true
+    };
+    NSGraphicsContext::restoreGraphicsState_class();
+    if !drawn {
+        return None;
+    }
+    // SAFETY: identical owned allocation bounds as the initialized buffer.
+    let bytes = unsafe { std::slice::from_raw_parts(data, pixels * pixels * 4) };
+    let alpha = bytes
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|pixel| pixel[3])
+        .collect::<Vec<_>>();
+    if !alpha.iter().any(|alpha| *alpha > 0) {
+        return None;
+    }
+    Some(AlphaMask {
+        pixels: key.pixels,
+        alpha,
     })
 }
 
@@ -810,6 +852,144 @@ mod tests {
             )
             .is_none()
         );
+    }
+
+    fn ink_bounds(mask: &AlphaMask) -> (usize, usize, usize, usize) {
+        let side = usize::from(mask.pixels);
+        let (mut left, mut right, mut top, mut bottom) = (side, 0, side, 0);
+        for (index, alpha) in mask.alpha.iter().enumerate() {
+            if *alpha > 128 {
+                let (x, y) = (index % side, index / side);
+                (left, right) = (left.min(x), right.max(x));
+                (top, bottom) = (top.min(y), bottom.max(y));
+            }
+        }
+        assert!(left <= right && top <= bottom, "the symbol has visible ink");
+        (left, top, right + 1, bottom + 1)
+    }
+
+    fn cropped_alpha(mask: &AlphaMask) -> Vec<u8> {
+        let (left, top, right, bottom) = ink_bounds(mask);
+        let side = usize::from(mask.pixels);
+        (top..bottom)
+            .flat_map(|y| {
+                mask.alpha[y * side + left..y * side + right]
+                    .iter()
+                    .copied()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn natural_symbols_keep_their_artwork_with_rounded_image_bounds() {
+        let cases = autoreleasepool(|_| {
+            let mut cases = Vec::new();
+            for (name, ci_size) in [
+                ("square.grid.2x2", NSSize::new(20., 18.)),
+                ("paintpalette", NSSize::new(23., 19.)),
+                ("macwindow", NSSize::new(24., 18.)),
+            ] {
+                for scale in [1_u16, 2] {
+                    let key = MaskKey {
+                        symbol: Arc::from(name),
+                        points: 26 * 64,
+                        pixels: 26 * scale,
+                        weight: 5,
+                        natural: Some((13 * 64, true)),
+                    };
+                    let baseline = rasterize(&key).unwrap();
+                    let symbol = configured_symbol(&key).unwrap();
+                    let rep = symbol.representations().firstObject().unwrap();
+                    let image_size = symbol.size();
+                    let rep_size = rep.size();
+                    // These are the actual whole-point bounds reported by CI.
+                    // Its native artwork still agrees with SwiftUI at 2x.
+                    symbol.setSize(ci_size);
+                    rep.setSize(ci_size);
+                    let rounded = rasterize_symbol(&key, &symbol);
+                    rep.setSize(rep_size);
+                    symbol.setSize(image_size);
+                    cases.push((name, scale, baseline, rounded.unwrap()));
+                }
+            }
+            cases
+        });
+
+        // Optional pixel captures use the exact alpha masks consumed by GPUI.
+        // The regression assertions below always run, with or without captures.
+        if let Some(directory) = std::env::var_os("GPUI_MACOS_SYMBOL_CAPTURE_DIR") {
+            let directory = std::path::PathBuf::from(directory);
+            std::fs::create_dir_all(&directory).unwrap();
+            let mut measurements = Vec::new();
+            for (name, scale, baseline, rounded) in &cases {
+                for (label, mask) in [("normal", baseline), ("rounded", rounded)] {
+                    let rgba: Vec<u8> = mask.alpha.iter().flat_map(|a| [0, 0, 0, *a]).collect();
+                    let mut png = Vec::new();
+                    PngEncoder::new(&mut png)
+                        .write_image(
+                            &rgba,
+                            u32::from(mask.pixels),
+                            u32::from(mask.pixels),
+                            image::ExtendedColorType::Rgba8,
+                        )
+                        .unwrap();
+                    std::fs::write(directory.join(format!("{name}.{scale}x.{label}.png")), png)
+                        .unwrap();
+                    measurements.push(serde_json::json!({
+                        "symbol": name, "scale": scale, "case": label,
+                        "bounds": ink_bounds(mask),
+                    }));
+                }
+            }
+            std::fs::write(
+                directory.join("measurements.json"),
+                serde_json::to_vec_pretty(&measurements).unwrap(),
+            )
+            .unwrap();
+        }
+
+        for (name, scale, baseline, rounded) in cases {
+            let (a_left, a_top, a_right, a_bottom) = ink_bounds(&baseline);
+            let (b_left, b_top, b_right, b_bottom) = ink_bounds(&rounded);
+            if scale == 2 {
+                assert_eq!(
+                    (a_right - a_left, a_bottom - a_top),
+                    (b_right - b_left, b_bottom - b_top),
+                    "{name}: rounded image bounds must not squash the artwork",
+                );
+                assert_eq!(cropped_alpha(&baseline), cropped_alpha(&rounded), "{name}");
+            } else {
+                // A half-point origin shift changes antialiasing at 1x.
+                assert!((a_right - a_left).abs_diff(b_right - b_left) <= 1, "{name}");
+                assert!((a_bottom - a_top).abs_diff(b_bottom - b_top) <= 1, "{name}");
+            }
+            assert!(
+                a_left.abs_diff(b_left) <= 1 && a_top.abs_diff(b_top) <= 1,
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn natural_symbols_scale_down_inside_a_small_box() {
+        for name in ["square.grid.2x2", "paintpalette", "macwindow"] {
+            for scale in [1_u16, 2] {
+                let mask = rasterize(&MaskKey {
+                    symbol: Arc::from(name),
+                    points: 8 * 64,
+                    pixels: 8 * scale,
+                    weight: 5,
+                    natural: Some((13 * 64, true)),
+                })
+                .unwrap();
+                let (left, top, right, bottom) = ink_bounds(&mask);
+                let side = usize::from(mask.pixels);
+                assert!(
+                    left > 0 && top > 0 && right < side && bottom < side,
+                    "{name} at {scale}x: the oversized symbol fits without clipping",
+                );
+            }
+        }
     }
 
     #[test]

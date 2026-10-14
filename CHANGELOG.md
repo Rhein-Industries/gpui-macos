@@ -4,6 +4,9 @@
 
 ### Polish
 
+- Natural-size sidebar SF Symbols use their original vector representation.
+  This prevents compressed icons when AppKit rounds the image bounds down,
+  including a 2x bitmap rendered on GitHub's macOS runner.
 - Added `list_rows(cx)`: the `.inset` list layout for `list_item` rows
   (spec §5.2, §6.4). Rows follow each other at the 24 pt pitch with no gap,
   10 pt below the top and above the bottom, inset 11.5 pt from each side.

@@ -49,6 +49,30 @@ func appkitBitmap(_ symbol: NSImage) -> NSBitmapImageRep {
     let bitmap = blankBitmap()
     NSGraphicsContext.saveGraphicsState()
     NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)!
+    let representation = symbol.representations.first!
+    let intrinsic = representation.size
+    let fit = min(1, 26 / max(intrinsic.width, intrinsic.height))
+    let origin = NSPoint(x: (26 - intrinsic.width * fit) / 2,
+                         y: (26 - intrinsic.height * fit) / 2)
+    // Draw the original configured vector representation. NSImage.draw(in:)
+    // asks for a representation fitted to its rounded whole-point bounds.
+    // Smaller rounded bounds can shrink a natural symbol in this 2x context.
+    if fit < 1 {
+        let context = NSGraphicsContext.current!.cgContext
+        context.translateBy(x: origin.x, y: origin.y)
+        context.scaleBy(x: fit, y: fit)
+        representation.draw(at: .zero)
+    } else {
+        representation.draw(at: origin)
+    }
+    NSGraphicsContext.restoreGraphicsState()
+    return bitmap
+}
+
+func legacyAppkitBitmap(_ symbol: NSImage) -> NSBitmapImageRep {
+    let bitmap = blankBitmap()
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)!
     symbol.draw(in: rect(symbol), from: .zero, operation: .sourceOver, fraction: 1)
     NSGraphicsContext.restoreGraphicsState()
     return bitmap
@@ -117,7 +141,14 @@ func backgroundBitmap(_ name: String) -> BackgroundRender {
                                                        rect(symbol).width, rect(symbol).height]]
         entry["context_ctm"] = [ctm.a, ctm.b, ctm.c, ctm.d, ctm.tx, ctm.ty]
         entry["context_is_drawing_to_screen"] = diagnosticContext.isDrawingToScreen
-        var renditions = [("appkit_matching_rust", appkitBitmap(symbol)),
+        let original = symbol.representations.first!
+        let originalSize = original.size
+        entry["original_representation_class"] = String(describing: type(of: original))
+        entry["original_representation_points"] = [originalSize.width, originalSize.height]
+        entry["original_representation_draw_origin_points"] = [(26 - originalSize.width) / 2,
+                                                               (26 - originalSize.height) / 2]
+        var renditions = [("appkit_legacy_in_rect", legacyAppkitBitmap(symbol)),
+                          ("appkit_matching_rust", appkitBitmap(symbol)),
                           ("independent_cgcontext", directCGContext(symbol))]
         let best = symbol.bestRepresentation(for: rect(symbol), context: diagnosticContext, hints: nil)
         entry["best_representation_class"] = best.map { String(describing: type(of: $0)) } ?? "none"
@@ -139,7 +170,7 @@ func backgroundBitmap(_ name: String) -> BackgroundRender {
         for (method, bitmap) in renditions {
             let data = bitmap.representation(using: .png, properties: [:])!
             var measurement = measure(bitmap)
-            if inCI && ["appkit_matching_rust", "swiftui_image_renderer"].contains(method) {
+            if inCI && ["appkit_legacy_in_rect", "appkit_matching_rust", "swiftui_image_renderer"].contains(method) {
                 measurement["png_base64"] = data.base64EncodedString()
             }
             entry[method] = measurement
@@ -151,7 +182,7 @@ func backgroundBitmap(_ name: String) -> BackgroundRender {
     let report: [String: Any] = ["os": ProcessInfo.processInfo.operatingSystemVersionString,
         "os_version": [os.majorVersion, os.minorVersion, os.patchVersion],
         "screen_backing_scales": NSScreen.screens.map { $0.backingScaleFactor },
-        "method": "Alpha > 128, 13 pt medium / large scale, natural size centered in 26 pt box at 2x.",
+        "method": "Alpha > 128, 13 pt medium / large scale in a 26 pt box at 2x. appkit_matching_rust draws the original NSImageRep at its natural size; appkit_legacy_in_rect fits NSImage to its rounded bounds.",
         "results": results]
     let options: JSONSerialization.WritingOptions = inCI ? [.sortedKeys] : [.prettyPrinted, .sortedKeys]
     let data = try! JSONSerialization.data(withJSONObject: report, options: options)
