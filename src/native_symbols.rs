@@ -395,22 +395,6 @@ fn rasterize_symbol(key: &MaskKey, symbol: &NSImage) -> Option<AlphaMask> {
             pixels as f64 / intrinsic.width.max(intrinsic.height),
         ),
     };
-    #[cfg(test)]
-    if key.natural.is_some() {
-        eprintln!(
-            "SF symbol {}: box={}pt pixels={} weight={} natural={:?} intrinsic={}x{}pt bitmap={}x{}pt screen_context={}",
-            key.symbol,
-            box_points,
-            pixels,
-            key.weight,
-            key.natural,
-            intrinsic.width,
-            intrinsic.height,
-            bitmap.size().width,
-            bitmap.size().height,
-            context.isDrawingToScreen()
-        );
-    }
     let size = NSSize::new(intrinsic.width * fit, intrinsic.height * fit);
     let rect = NSRect::new(
         NSPoint::new((extent - size.width) / 2., (extent - size.height) / 2.),
@@ -805,14 +789,6 @@ mod tests {
             (IconName::AppWindow, (39, 31)),
         ] {
             let (width, height) = ink_box(name);
-            if name == IconName::Grid2x2 && std::env::var_os("GITHUB_ACTIONS").is_some() {
-                // A child process writes directly to the CI log even when the
-                // Rust test harness captures output from a passing test.
-                let probe = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("scripts/diagnose-native-symbols.swift");
-                let status = std::process::Command::new("swift").arg(probe).status();
-                eprintln!("SF symbol diagnostic probe: {status:?}");
-            }
             assert!(width > 0 && height > 0, "{name:?} renders");
             if baseline {
                 assert!(
